@@ -69,6 +69,12 @@ hand mass physically present in sim2sim without needing articulated fingers or a
 dex-hand mjcf (which RoboJuDo's torque-PD env can't drive). To run massless instead, point the
 env `xml` back to `g1_29dof_rev_1_0.xml`.
 
+The handmass mjcf ALSO shows the inspire dexterous hands **visually** (for demos): the inspire
+hand link meshes are grafted onto each wrist as **welded, visual-only, massless** geoms (joints /
+inertials / collision / sites stripped, frozen at the rest/open pose). So the robot looks like the
+dex-hand G1 while staying a 29-torque-actuator model. The 16 finger STL meshes live in
+`assets/robots/g1/meshes/{left,right}_*.stl`.
+
 ## Tuning
 
 `max_cmd=[0.8,0.5,1.0]` scales the velocity keys; `height_default/min/max/step` in the policy
