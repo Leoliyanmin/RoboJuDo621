@@ -58,22 +58,24 @@ Exported IO descriptor:
 | walk vx=0.4   | +1.21 m in 3 s (~0.4 m/s), upright |
 | squat h=0.55  | root_z ≈ 0.596 (−0.12 m) — height command works |
 
-## Dexterous-hand mass (default)
+## Dexterous-hand mass & visuals (default = `g1_29dof_rev_1_0_handmass.xml`)
 
-The policy was trained on exp03 (DFQ inspire hands, frozen). The hands aren't articulated
-or observed (zero-padded), but their **mass** affects the dynamics. So the default robot is
-`g1_29dof_rev_1_0_handmass.xml` = the stock 29-DOF mjcf + a lumped **0.1918 kg fixed inertial
-body at each wrist** (the exp03 training hand mass, total +0.384 kg → 33.725 kg). No joints /
-actuators added, so it stays a 29-torque-actuator model (RoboJuDo-compatible). This makes the
-hand mass physically present in sim2sim without needing articulated fingers or a position-actuator
-dex-hand mjcf (which RoboJuDo's torque-PD env can't drive). To run massless instead, point the
-env `xml` back to `g1_29dof_rev_1_0.xml`.
+**Mass is already faithful in the stock model.** RoboJuDo's `g1_29dof_rev_1_0.xml` has NO separate
+head/hand bodies — it LUMPS them in: torso 7.818 = exp03 torso 6.78 + head 1.036; each wrist 0.255 ≈
+exp03 wrist 0.085 + hand 0.192. Total 33.341 kg ≈ exp03's 33.385 kg (with hands). So the hand mass
+already acts in sim2sim (lumped into the wrist) — no mass needs adding (an earlier attempt to add a
+lumped 0.1918 kg/wrist body DOUBLE-COUNTED it; reverted).
 
-The handmass mjcf ALSO shows the inspire dexterous hands **visually** (for demos): the inspire
-hand link meshes are grafted onto each wrist as **welded, visual-only, massless** geoms (joints /
-inertials / collision / sites stripped, frozen at the rest/open pose). So the robot looks like the
-dex-hand G1 while staying a 29-torque-actuator model. The 16 finger STL meshes live in
-`assets/robots/g1/meshes/{left,right}_*.stl`.
+So `g1_29dof_rev_1_0_handmass.xml` = the stock mjcf with **UNCHANGED masses** + the inspire dexterous
+hands grafted on **for visuals only** (welded, density=0, no collision/joints/sites; frozen open pose).
+The robot looks like the dex-hand G1 and stays a 29-torque-actuator RoboJuDo-compatible model. The 16
+finger STL meshes live in `assets/robots/g1/meshes/{left,right}_*.stl`.
+
+Caveat (why a full conversion is still better): the lumping makes the mass slightly more central
+(head in torso) and slightly less distal (hand at the wrist, ~4 cm closer than the real hand COM).
+For the EXACT exp03 distribution + inertia tensors + real DFQ hands, convert the exp03 URDF
+(`g1_29dof_rev_1_0_with_inspire_hand_DFQ.urdf`) to MJCF (weld the 24 hand joints, add 29 torque
+motors, add a floor). The lumped/stock model captures ~95% of the fidelity for locomotion.
 
 ## Tuning
 
