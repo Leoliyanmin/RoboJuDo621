@@ -84,6 +84,28 @@ Observed command = `raw × max_cmd` (default `[0.8, 0.5, 1.57]`), so commanded `
 policy as ~0.4 m/s → it tracks ~0.34 m/s. For faithful m/s, override in `G1AgileVelocityPolicyCfg`:
 `max_cmd: list[float] = [1.0, 1.0, 1.57]`.
 
+## Dexterous-hand robot (inspire hands)
+
+The velocity policy is **hand-agnostic** — it controls 14 lower-body joints (legs +
+waist_roll + waist_pitch) and observes none of the arms/wrists/hands. So you can run it
+on a dexterous-hand G1 mjcf; the fingers just stay at their default pose (passive).
+
+To use a dex-hand robot (configure these robot files locally):
+
+1. Drop a dex-hand mjcf into `assets/robots/g1/`, e.g. `g1_inspirehands.xml` (verified to
+   contain all 14 controlled joints by name; 54 actuated = 29 body + 25 inspire-hand finger
+   joints; ships a floor). Copy its mesh dir alongside.
+2. Add an env DoF cfg listing **all** the mjcf's actuated joints (the 29 body joints with the
+   same gains as `G1_29DoF`, plus the 25 finger joints — give the fingers a modest holding
+   stiffness/damping and a default_pos so they don't flop). Point a new
+   `G1InspireHandsMujocoEnvCfg(xml=...)` at the dex-hand xml.
+3. Register a `g1_agile_velocity_dexhand` pipeline that swaps `env` to that cfg. The `policy`
+   stays exactly `G1AgileVelocityPolicyCfg` — DoFAdapter/merge_dof_cfgs slice the 14 controlled
+   joints by name out of the larger DoF set and hold everything else (arms + fingers) at the
+   env default.
+
+Nothing about the policy, obs, or action mapping changes — only the env robot model.
+
 ## Status / TODO
 
 - 29-DOF: ✅ validated (stand + walk).
