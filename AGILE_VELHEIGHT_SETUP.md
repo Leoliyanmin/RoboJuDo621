@@ -87,6 +87,7 @@ note in AGILE_VELOCITY_SETUP.md) — no policy change needed.
 ## Wrist load (box carry) — default 10 N
 
 This is the wrist20-trained policy, so the config applies a sustained **10 N world-down force
-per wrist** by default (, applied at  in MujocoEnv.step).
-Set  for no load, or up to ~20 (its training max). Validated: stands (z~0.70,
-slightly compressed) and walks ~0.43 m/s under 10 N/wrist.
+per wrist** by default (`wrist_load_n=10.0` on the env cfg, applied to `data.xfrc_applied[bid, :3]`
+for each `wrist_load_bodies` entry in `MujocoEnv.step`). Set `wrist_load_n=0.0` for no load, or up
+to `~20.0` (its training max). Validated: stands (z~0.70, slightly compressed) and walks ~0.43 m/s
+under 10 N/wrist.

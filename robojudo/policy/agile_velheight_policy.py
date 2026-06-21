@@ -49,6 +49,10 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.timestep = 0
         self.last_action = np.zeros(self.num_actions, dtype=np.float32)  # 12, raw (pre-scale)
         self._height = self.height_default
+        # [ih] latched movement keys: held until release. pynput only emits press/release
+        # edges (+ patchy OS key-repeat), so we track which dir-keys are down and rebuild the
+        # velocity command from that set every step — continuous while held, stops on release.
+        self._held_keys = set()
         # Clear the LSTM hidden state carried inside the exported JIT.
         for name, buf in self.model.named_buffers():
             if "hidden" in name or "cell" in name:
@@ -57,8 +61,18 @@ class AgileVelHeightRecurrentPolicy(Policy):
     def post_step_callback(self, commands=None):
         self.timestep += 1
 
+    # [ih] direction key -> (axis, normalized sign). Latched while held. Sign feeds
+    # command_remap at full scale (1.0, not 1.5) so it maps exactly to the command_map
+    # endpoint — no linear over-extrapolation past the trained command range (e.g. wz to
+    # ±1.5 rad/s, beyond the policy's 1.0 rad/s max, which made turning erratic/OOD).
+    _MOVE_KEYS = {
+        "w": (0, 1.0), "s": (0, -1.0),
+        "a": (1, -1.0), "d": (1, 1.0),
+        "e": (2, 1.0), "q": (2, -1.0),
+    }
+
     def _get_commands(self, ctrl_data) -> np.ndarray:
-        """Return [vx, vy, wz, height]. vx/vy/wz momentary; height persistent (r/f)."""
+        """Return [vx, vy, wz, height]. vx/vy/wz from latched keys; height persistent (r/f)."""
         vel = np.zeros(3, dtype=np.float32)
         for key in ctrl_data.keys():
             if key in ["JoystickCtrl", "UnitreeCtrl"]:
@@ -69,29 +83,24 @@ class AgileVelHeightRecurrentPolicy(Policy):
                 vel[2] = command_remap(rx, self.commands_map[2])
                 break
             if key in ["KeyboardCtrl"]:
+                # update latched key state from this step's press/release edges
                 for event in ctrl_data[key]["keyboard_event"]:
                     if event["type"] != "keyboard":
                         continue
-                    v = event["pressed"] * 1.5
-                    match event["name"]:
-                        case "w":
-                            vel[0] = command_remap(v, self.commands_map[0])
-                        case "s":
-                            vel[0] = command_remap(-v, self.commands_map[0])
-                        case "a":
-                            vel[1] = command_remap(-v, self.commands_map[1])
-                        case "d":
-                            vel[1] = command_remap(v, self.commands_map[1])
-                        case "e":
-                            vel[2] = command_remap(v, self.commands_map[2])
-                        case "q":
-                            vel[2] = command_remap(-v, self.commands_map[2])
-                        case "r":  # stand taller
-                            if event["pressed"]:
-                                self._height = min(self.height_max, self._height + self.height_step)
-                        case "f":  # squat lower
-                            if event["pressed"]:
-                                self._height = max(self.height_min, self._height - self.height_step)
+                    name = event["name"]
+                    if name in self._MOVE_KEYS:
+                        if event["pressed"]:
+                            self._held_keys.add(name)
+                        else:
+                            self._held_keys.discard(name)
+                    elif event["pressed"] and name == "r":  # stand taller
+                        self._height = min(self.height_max, self._height + self.height_step)
+                    elif event["pressed"] and name == "f":  # squat lower
+                        self._height = max(self.height_min, self._height - self.height_step)
+                # rebuild the velocity command from whatever is currently held
+                for name in self._held_keys:
+                    axis, sign = self._MOVE_KEYS[name]
+                    vel[axis] = command_remap(sign, self.commands_map[axis])
                 break
         vel = vel * self.max_cmd  # scale normalized vel-cmd to m/s, rad/s
         return np.array([vel[0], vel[1], vel[2], self._height], dtype=np.float32)
