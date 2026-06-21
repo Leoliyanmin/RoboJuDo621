@@ -132,5 +132,3 @@ assets/motions
 logs
 MUJOCO_LOG.TXT
 assets/resources
-# [ih] AGILE policy weights — provide locally (see AGILE_VELOCITY_SETUP.md)
-assets/models/g1/unitree/velocity_history_29dof.pt
