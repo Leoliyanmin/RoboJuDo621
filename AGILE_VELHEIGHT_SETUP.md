@@ -58,6 +58,17 @@ Exported IO descriptor:
 | walk vx=0.4   | +1.21 m in 3 s (~0.4 m/s), upright |
 | squat h=0.55  | root_z ≈ 0.596 (−0.12 m) — height command works |
 
+## Dexterous-hand mass (default)
+
+The policy was trained on exp03 (DFQ inspire hands, frozen). The hands aren't articulated
+or observed (zero-padded), but their **mass** affects the dynamics. So the default robot is
+`g1_29dof_rev_1_0_handmass.xml` = the stock 29-DOF mjcf + a lumped **0.1918 kg fixed inertial
+body at each wrist** (the exp03 training hand mass, total +0.384 kg → 33.725 kg). No joints /
+actuators added, so it stays a 29-torque-actuator model (RoboJuDo-compatible). This makes the
+hand mass physically present in sim2sim without needing articulated fingers or a position-actuator
+dex-hand mjcf (which RoboJuDo's torque-PD env can't drive). To run massless instead, point the
+env `xml` back to `g1_29dof_rev_1_0.xml`.
+
 ## Tuning
 
 `max_cmd=[0.8,0.5,1.0]` scales the velocity keys; `height_default/min/max/step` in the policy

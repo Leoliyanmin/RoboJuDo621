@@ -1,4 +1,4 @@
-from robojudo.config import cfg_registry
+from robojudo.config import ASSETS_DIR, cfg_registry  # [ih] ASSETS_DIR for handmass xml
 from robojudo.controller.ctrl_cfgs import (
     JoystickCtrlCfg,  # noqa: F401
     KeyboardCtrlCfg,  # noqa: F401
@@ -173,7 +173,13 @@ class g1_agile_velheight(RlPipelineCfg):
     """[ih] AGILE Velocity-Height FrozenHands Wrist20 distillation recurrent student."""
 
     robot: str = "g1"
-    env: G1MujocoEnvCfg = G1MujocoEnvCfg(sim_dt=0.005, sim_decimation=4)
+    # [ih] handmass xml: stock 29-DOF + lumped DFQ hand mass (0.1918 kg/wrist, exp03
+    # training value) so the dexterous-hand mass is physically present in sim2sim.
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        sim_dt=0.005,
+        sim_decimation=4,
+        xml=(ASSETS_DIR / "robots/g1/g1_29dof_rev_1_0_handmass.xml").as_posix(),
+    )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),
     ]
