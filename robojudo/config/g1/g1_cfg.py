@@ -179,6 +179,9 @@ class g1_agile_velheight(RlPipelineCfg):
         sim_dt=0.005,
         sim_decimation=4,
         xml=(ASSETS_DIR / "robots/g1/g1_29dof_rev_1_0_handmass.xml").as_posix(),
+        # [ih] default 10 N down per wrist — this is a wrist20-trained policy, so show it
+        # carrying a load. Set 0 for no load, up to ~20 (the max it was trained on).
+        wrist_load_n=10.0,
     )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),

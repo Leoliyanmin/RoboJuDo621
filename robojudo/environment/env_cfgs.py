@@ -37,6 +37,11 @@ class MujocoEnvCfg(EnvCfg):
     visualize_extras: bool = True  # TODO: remove
 
     random_heading: bool = False
+
+    # [ih] sustained world-frame-down force (N) applied at each wrist body — emulates a
+    # box-carry / wrist load (e.g. for the AGILE wrist20-trained policies). 0 = off.
+    wrist_load_n: float = 0.0
+    wrist_load_bodies: list[str] = ["left_wrist_yaw_link", "right_wrist_yaw_link"]
     """Randomize the robot's yaw heading on each spawn/reborn (useful for testing heading alignment)."""
 
 

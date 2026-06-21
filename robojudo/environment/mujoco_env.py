@@ -31,6 +31,15 @@ class MujocoEnv(Environment):
         # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
         mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
+        # [ih] resolve wrist-load body ids (sustained world-down force, e.g. box carry)
+        self._wrist_load_n = float(getattr(cfg_env, "wrist_load_n", 0.0) or 0.0)
+        self._wrist_load_body_ids = []
+        if self._wrist_load_n > 0.0:
+            for bn in getattr(cfg_env, "wrist_load_bodies", []):
+                bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, bn)
+                if bid >= 0:
+                    self._wrist_load_body_ids.append(bid)
+
         self.viewer = mujoco_viewer.MujocoViewer(
             self.model,
             self.data,
@@ -145,6 +154,11 @@ class MujocoEnv(Environment):
         self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
         if self.viewer.is_alive:
             self.viewer.render()
+
+        # [ih] apply sustained world-frame-down wrist load (box carry) each step
+        if self._wrist_load_body_ids:
+            for bid in self._wrist_load_body_ids:
+                self.data.xfrc_applied[bid, :3] = [0.0, 0.0, -self._wrist_load_n]
 
         for _ in range(self.sim_decimation):
             torque = (pd_target - self.dof_pos) * self.stiffness - self.dof_vel * self.damping

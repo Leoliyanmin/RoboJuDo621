@@ -83,3 +83,10 @@ motors, add a floor). The lumped/stock model captures ~95% of the fidelity for l
 cfg set the squat range. The dexterous-hand exp03 robot is optional (frozen hands aren't in the
 effective obs); to show them, swap the env mjcf to a 53-joint dex-hand model (see the dex-hand
 note in AGILE_VELOCITY_SETUP.md) — no policy change needed.
+
+## Wrist load (box carry) — default 10 N
+
+This is the wrist20-trained policy, so the config applies a sustained **10 N world-down force
+per wrist** by default (, applied at  in MujocoEnv.step).
+Set  for no load, or up to ~20 (its training max). Validated: stands (z~0.70,
+slightly compressed) and walks ~0.43 m/s under 10 N/wrist.
