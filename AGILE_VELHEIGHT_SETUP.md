@@ -66,7 +66,7 @@ exp03 wrist 0.085 + hand 0.192. Total 33.341 kg ≈ exp03's 33.385 kg (with hand
 already acts in sim2sim (lumped into the wrist) — no mass needs adding (an earlier attempt to add a
 lumped 0.1918 kg/wrist body DOUBLE-COUNTED it; reverted).
 
-So `g1_29dof_rev_1_0_handmass.xml` = the stock mjcf with **UNCHANGED masses** + the inspire dexterous
+So `g1_29dof_rev_1_0_handmass.xml` = the stock mjcf with **UNCHANGED masses** + the exp03 DFQ dexterous
 hands grafted on **for visuals only** (welded, density=0, no collision/joints/sites; frozen open pose).
 The robot looks like the dex-hand G1 and stays a 29-torque-actuator RoboJuDo-compatible model. The 16
 finger STL meshes live in `assets/robots/g1/meshes/{left,right}_*.stl`.
