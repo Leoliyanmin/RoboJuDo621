@@ -22,6 +22,7 @@ from .env.g1_dummy_env_cfg import G1DummyEnvCfg  # noqa: F401
 from .env.g1_mujuco_env_cfg import G1_12MujocoEnvCfg, G1_23MujocoEnvCfg, G1MujocoEnvCfg  # noqa: F401
 from .env.g1_real_env_cfg import G1RealEnvCfg, G1UnitreeCfg  # noqa: F401
 from .policy.g1_agile_velocity_cfg import G1AgileVelocityPolicyCfg  # noqa: F401  [ih]
+from .policy.g1_agile_velheight_cfg import G1AgileVelHeightPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_amo_policy_cfg import G1AmoPolicyCfg  # noqa: F401
 from .policy.g1_asap_policy_cfg import G1AsapLocoPolicyCfg, G1AsapPolicyCfg  # noqa: F401
 from .policy.g1_beyondmimic_policy_cfg import G1BeyondMimicPolicyCfg  # noqa: F401
@@ -161,6 +162,22 @@ class g1_agile_velocity(RlPipelineCfg):
         KeyboardCtrlCfg(),
     ]
     policy: G1AgileVelocityPolicyCfg = G1AgileVelocityPolicyCfg()
+
+
+# [ih] AGILE velocity-HEIGHT frozen-hands RECURRENT (LSTM) policy, sim2sim.
+# Keyboard: w/a/s/d=vx/vy, q/e=yaw, r/f=stand taller/squat lower. obs 128 (no history),
+# 12 leg joints controlled, 24 DFQ hand joints zero-padded (frozen). 200Hz physics.
+# Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_agile_velheight
+@cfg_registry.register
+class g1_agile_velheight(RlPipelineCfg):
+    """[ih] AGILE Velocity-Height FrozenHands Wrist20 distillation recurrent student."""
+
+    robot: str = "g1"
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(sim_dt=0.005, sim_decimation=4)
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(),
+    ]
+    policy: G1AgileVelHeightPolicyCfg = G1AgileVelHeightPolicyCfg()
 
 
 @cfg_registry.register
