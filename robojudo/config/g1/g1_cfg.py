@@ -21,6 +21,7 @@ from .ctrl.g1_twist_redis_ctrl_cfg import G1TwistRedisCtrlCfg  # noqa: F401
 from .env.g1_dummy_env_cfg import G1DummyEnvCfg  # noqa: F401
 from .env.g1_mujuco_env_cfg import G1_12MujocoEnvCfg, G1_23MujocoEnvCfg, G1MujocoEnvCfg  # noqa: F401
 from .env.g1_real_env_cfg import G1RealEnvCfg, G1UnitreeCfg  # noqa: F401
+from .policy.g1_agile_velocity_cfg import G1AgileVelocityPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_amo_policy_cfg import G1AmoPolicyCfg  # noqa: F401
 from .policy.g1_asap_policy_cfg import G1AsapLocoPolicyCfg, G1AsapPolicyCfg  # noqa: F401
 from .policy.g1_beyondmimic_policy_cfg import G1BeyondMimicPolicyCfg  # noqa: F401
@@ -142,6 +143,24 @@ class g1_locomimic(RlLocoMimicPipelineCfg):
 
 
 # ======================== Configs for supported Policy ======================== #
+
+
+# [ih] AGILE 29-DOF velocity-history policy, sim2sim. Keyboard velocity teleop
+# (w/a/s/d = vx/vy, q/e = yaw). env physics overridden to 200 Hz (sim_dt 0.005 x
+# decimation 4) to match AGILE training (RoboJuDo default is 1000 Hz). Uses the
+# stock g1_29dof_rev_1_0.xml. Run: python scripts/run_pipeline.py -c g1_agile_velocity
+@cfg_registry.register
+class g1_agile_velocity(RlPipelineCfg):
+    """[ih] AGILE Velocity-G1-History-v0 (29-DOF) deployed via RoboJuDo sim2sim."""
+
+    robot: str = "g1"
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(sim_dt=0.005, sim_decimation=4)
+    # [ih] keyboard-only (w/a/s/d=vx/vy, q/e=wz). Add JoystickCtrlCfg() back if a
+    # gamepad is plugged in — otherwise it just logs a harmless "No joystick" error.
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(),
+    ]
+    policy: G1AgileVelocityPolicyCfg = G1AgileVelocityPolicyCfg()
 
 
 @cfg_registry.register
