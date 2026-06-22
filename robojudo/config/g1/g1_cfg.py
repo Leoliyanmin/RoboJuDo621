@@ -156,7 +156,9 @@ class g1_agile_velocity(RlPipelineCfg):
     """[ih] AGILE Velocity-G1-History-v0 (29-DOF) deployed via RoboJuDo sim2sim."""
 
     robot: str = "g1"
-    env: G1MujocoEnvCfg = G1MujocoEnvCfg(sim_dt=0.005, sim_decimation=4)
+    # [ih] visualize_extras=False: suppress UnitreeWoGaitPolicy.debug_viz's command
+    # arrows (red/green/white), which flicker with the keyboard command. No viewer markers.
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(sim_dt=0.005, sim_decimation=4, visualize_extras=False)
     # [ih] keyboard-only (w/a/s/d=vx/vy, q/e=wz). Add JoystickCtrlCfg() back if a
     # gamepad is plugged in — otherwise it just logs a harmless "No joystick" error.
     ctrl: list[KeyboardCtrlCfg] = [
@@ -180,6 +182,8 @@ class g1_agile_velocity_23dof(RlPipelineCfg):
         sim_decimation=4,
         wrist_load_n=10.0,
         wrist_load_bodies=["left_wrist_roll_rubber_hand", "right_wrist_roll_rubber_hand"],
+        # [ih] suppress UnitreeWoGaitPolicy.debug_viz command arrows (flicker w/ keys).
+        visualize_extras=False,
     )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),
