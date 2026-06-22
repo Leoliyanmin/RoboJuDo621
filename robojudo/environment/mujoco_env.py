@@ -196,17 +196,31 @@ class MujocoEnv(Environment):
 
         # [ih] poll '[' / ']' to adjust the wrist load before rendering this frame
         self._poll_wrist_load_keys()
-        # [ih] floating readout of the current wrist load above the robot
-        if self._wrist_load_show and self._wrist_load_body_ids:
+        # [ih] floating readout above the robot: measured velocity + pelvis height + wrist load.
+        # measured (from sim state), not commanded — robust, no policy/unit coupling.
+        if self._wrist_load_show:
             root = self.data.qpos.astype(np.float32)[:3]
-            self.viewer.add_marker(
-                pos=[float(root[0]), float(root[1]), float(root[2]) + 1.0],
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                size=[0.04, 0.04, 0.04],
-                rgba=[1.0, 0.55, 0.0, 0.9],
-                label=f"Wrist load: {self._wrist_load_n:.0f} N/wrist  ([ - ] +)",
-                id=99,
-            )
+            x, y, z = float(root[0]), float(root[1]), float(root[2])
+            vb = getattr(self, "_base_lin_vel", np.zeros(3))   # body-frame [vx, vy, vz]
+            wb = getattr(self, "_base_ang_vel", np.zeros(3))   # body-frame [wx, wy, wz]
+
+            def _readout(dz, color, text, mid):
+                self.viewer.add_marker(
+                    pos=[x, y, z + dz],
+                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                    size=[0.03, 0.03, 0.03],
+                    rgba=color,
+                    label=text,
+                    id=mid,
+                )
+
+            _readout(1.28, [0.2, 0.8, 1.0, 0.9],
+                     f"vel  vx={float(vb[0]):+.2f}  vy={float(vb[1]):+.2f}  wz={float(wb[2]):+.2f} (m/s,rad/s)", 97)
+            _readout(1.14, [0.4, 1.0, 0.4, 0.9],
+                     f"pelvis height = {z:.2f} m", 98)
+            if self._wrist_load_body_ids:
+                _readout(1.00, [1.0, 0.55, 0.0, 0.9],
+                         f"wrist load = {self._wrist_load_n:.0f} N/wrist  ([ - ] +)", 99)
 
         self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
         if self.viewer.is_alive:
