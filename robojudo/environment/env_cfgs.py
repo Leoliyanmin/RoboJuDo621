@@ -42,7 +42,14 @@ class MujocoEnvCfg(EnvCfg):
     # box-carry / wrist load (e.g. for the AGILE wrist20-trained policies). 0 = off.
     wrist_load_n: float = 0.0
     wrist_load_bodies: list[str] = ["left_wrist_yaw_link", "right_wrist_yaw_link"]
-    """Randomize the robot's yaw heading on each spawn/reborn (useful for testing heading alignment)."""
+    # [ih] runtime wrist-load control + on-screen readout (MujocoEnv only):
+    #   keyboard: '[' decrease / ']' increase by wrist_load_step, clamped [0, wrist_load_max].
+    #   display:  a floating "Wrist load: N N/wrist" label above the robot in the viewer.
+    wrist_load_keyboard: bool = False
+    wrist_load_step: float = 2.0
+    wrist_load_max: float = 30.0
+    wrist_load_show: bool = True
+    """Show the wrist-load readout label in the viewer when the load feature is active."""
 
 
 class RobotEnvCfg(EnvCfg):

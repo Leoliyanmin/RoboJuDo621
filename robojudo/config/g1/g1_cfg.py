@@ -158,7 +158,16 @@ class g1_agile_velocity(RlPipelineCfg):
     robot: str = "g1"
     # [ih] visualize_extras=False: suppress UnitreeWoGaitPolicy.debug_viz's command
     # arrows (red/green/white), which flicker with the keyboard command. No viewer markers.
-    env: G1MujocoEnvCfg = G1MujocoEnvCfg(sim_dt=0.005, sim_decimation=4, visualize_extras=False)
+    # wrist load is keyboard-adjustable ('[' / ']') + shown above the robot; starts at 0
+    # since the 29-DOF velocity policy is NOT wrist20-trained (any load is out-of-distribution).
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        sim_dt=0.005,
+        sim_decimation=4,
+        visualize_extras=False,
+        wrist_load_n=0.0,
+        wrist_load_bodies=["left_wrist_yaw_link", "right_wrist_yaw_link"],
+        wrist_load_keyboard=True,
+    )
     # [ih] keyboard-only (w/a/s/d=vx/vy, q/e=wz). Add JoystickCtrlCfg() back if a
     # gamepad is plugged in — otherwise it just logs a harmless "No joystick" error.
     ctrl: list[KeyboardCtrlCfg] = [
@@ -184,6 +193,8 @@ class g1_agile_velocity_23dof(RlPipelineCfg):
         wrist_load_bodies=["left_wrist_roll_rubber_hand", "right_wrist_roll_rubber_hand"],
         # [ih] suppress UnitreeWoGaitPolicy.debug_viz command arrows (flicker w/ keys).
         visualize_extras=False,
+        # [ih] '[' / ']' adjust the box-carry load at runtime; readout shown above the robot.
+        wrist_load_keyboard=True,
     )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),
@@ -200,8 +211,13 @@ class g1_agile_velheight(RlPipelineCfg):
     """[ih] AGILE Velocity-Height FrozenHands Wrist20 distillation recurrent student."""
 
     robot: str = "g1"
-    # [ih] handmass xml: stock 29-DOF + lumped DFQ hand mass (0.1918 kg/wrist, exp03
-    # training value) so the dexterous-hand mass is physically present in sim2sim.
+    # [ih][GPT-5.5 audit 2026-06-22] Historical note: this file used to be described
+    # as adding a separate 0.1918 kg DFQ hand mass per wrist, but that description is
+    # now stale. The current ``g1_29dof_rev_1_0_handmass.xml`` keeps the stock MJCF
+    # inertials unchanged and adds only welded DFQ visual meshes (density=0, no hand
+    # joints/collisions). Evidence: both the stock and handmass MJCF sum to
+    # 33.341142 kg with 30 inertials and 29 motors; the current handmass MJCF contains
+    # no ``left_hand_mass``/``right_hand_mass`` body or 0.1918 kg inertial.
     env: G1MujocoEnvCfg = G1MujocoEnvCfg(
         sim_dt=0.005,
         sim_decimation=4,
@@ -209,6 +225,9 @@ class g1_agile_velheight(RlPipelineCfg):
         # [ih] default 10 N down per wrist — this is a wrist20-trained policy, so show it
         # carrying a load. Set 0 for no load, up to ~20 (the max it was trained on).
         wrist_load_n=10.0,
+        # [ih] '[' / ']' adjust the box-carry load at runtime; readout shown above the robot.
+        # (r/f stay mapped to height in the policy — no key clash.)
+        wrist_load_keyboard=True,
     )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),

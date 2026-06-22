@@ -31,14 +31,33 @@ class MujocoEnv(Environment):
         # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
         mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
-        # [ih] resolve wrist-load body ids (sustained world-down force, e.g. box carry)
+        # [ih] wrist-load (sustained world-down force, e.g. box carry) + runtime control.
         self._wrist_load_n = float(getattr(cfg_env, "wrist_load_n", 0.0) or 0.0)
+        self._wrist_load_kb = bool(getattr(cfg_env, "wrist_load_keyboard", False))
+        self._wrist_load_step = float(getattr(cfg_env, "wrist_load_step", 2.0))
+        self._wrist_load_max = float(getattr(cfg_env, "wrist_load_max", 30.0))
+        self._wrist_load_show = bool(getattr(cfg_env, "wrist_load_show", True))
         self._wrist_load_body_ids = []
-        if self._wrist_load_n > 0.0:
+        # resolve bodies if there is (or could be, via keyboard) a load to apply
+        if self._wrist_load_n > 0.0 or self._wrist_load_kb:
             for bn in getattr(cfg_env, "wrist_load_bodies", []):
                 bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, bn)
                 if bid >= 0:
                     self._wrist_load_body_ids.append(bid)
+        # optional keyboard listener for '[' / ']' load adjust (own pynput thread; coexists
+        # with the controller's KeyboardCtrl listener — pynput allows multiple listeners).
+        self._wrist_load_queue = None
+        if self._wrist_load_kb:
+            try:
+                from queue import Queue
+
+                from robojudo.controller.utils.keyboard import KeyboardThread
+
+                self._wrist_load_queue = Queue(maxsize=100)
+                KeyboardThread(self._wrist_load_queue).start()
+            except Exception as e:  # no display / pynput unavailable — silently skip
+                logger.warning(f"[ih] wrist-load keyboard disabled: {e}")
+                self._wrist_load_queue = None
 
         self.viewer = mujoco_viewer.MujocoViewer(
             self.model,
@@ -145,11 +164,49 @@ class MujocoEnv(Environment):
             self._torso_quat = fk_info[self._torso_name]["quat"]
             self._torso_pos = fk_info[self._torso_name]["pos"]
 
+    def _poll_wrist_load_keys(self):
+        """[ih] drain this step's keyboard events; '[' decrease / ']' increase the wrist load."""
+        if self._wrist_load_queue is None:
+            return
+        from queue import Empty
+
+        changed = False
+        while not self._wrist_load_queue.empty():
+            try:
+                ev = self._wrist_load_queue.get_nowait()
+            except Empty:
+                break
+            if ev.get("type") != "keyboard" or not ev.get("pressed"):
+                continue
+            name = ev.get("name")
+            if name == "]":
+                self._wrist_load_n = min(self._wrist_load_max, self._wrist_load_n + self._wrist_load_step)
+                changed = True
+            elif name == "[":
+                self._wrist_load_n = max(0.0, self._wrist_load_n - self._wrist_load_step)
+                changed = True
+        if changed:
+            logger.info(f"[ih] wrist load -> {self._wrist_load_n:.1f} N/wrist")
+
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"
 
         if hand_pose is not None:
             logger.info("Hand pose-->", hand_pose)
+
+        # [ih] poll '[' / ']' to adjust the wrist load before rendering this frame
+        self._poll_wrist_load_keys()
+        # [ih] floating readout of the current wrist load above the robot
+        if self._wrist_load_show and self._wrist_load_body_ids:
+            root = self.data.qpos.astype(np.float32)[:3]
+            self.viewer.add_marker(
+                pos=[float(root[0]), float(root[1]), float(root[2]) + 1.0],
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=[0.04, 0.04, 0.04],
+                rgba=[1.0, 0.55, 0.0, 0.9],
+                label=f"Wrist load: {self._wrist_load_n:.0f} N/wrist  ([ - ] +)",
+                id=99,
+            )
 
         self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
         if self.viewer.is_alive:
