@@ -228,6 +228,9 @@ class g1_agile_velheight(RlPipelineCfg):
         # [ih] '[' / ']' adjust the box-carry load at runtime; readout shown above the robot.
         # (r/f stay mapped to height in the policy — no key clash.)
         wrist_load_keyboard=True,
+        # [ih] manual waist_pitch test: ',' lean back / '.' lean forward (full ±30° limit),
+        # angle shown in readout — hand-test whether the policy tolerates / benefits from lean.
+        waist_manual_keyboard=True,
     )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),

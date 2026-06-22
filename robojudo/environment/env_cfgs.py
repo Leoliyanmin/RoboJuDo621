@@ -60,6 +60,12 @@ class MujocoEnvCfg(EnvCfg):
     waist_lean_lo: float = 0.50  # height <= lo -> full lean
     waist_lean_rate_dps: float = 60.0  # rate limit on the applied lean (deg/s)
 
+    # [ih] MANUAL keyboard waist_pitch override (overrides the auto lean above):
+    #   ',' lean back / '.' lean forward by waist_manual_step_deg, clamped to the joint limit.
+    #   Current angle shown in the viewer readout. For live hand-testing of waist posture.
+    waist_manual_keyboard: bool = False
+    waist_manual_step_deg: float = 2.0
+
 
 class RobotEnvCfg(EnvCfg):
     env_type: str = "DummyEnv"

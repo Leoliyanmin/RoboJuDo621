@@ -46,30 +46,36 @@ class MujocoEnv(Environment):
         self._waist_lean_rate = float(np.radians(getattr(cfg_env, "waist_lean_rate_dps", 60.0)))
         self._waist_cur = 0.0
         self._waist_dof = None
-        if self._waist_lean_max != 0.0:
+        self._waist_lo, self._waist_hi = -0.52, 0.52
+        # [ih] manual keyboard waist override
+        self._waist_manual = bool(getattr(cfg_env, "waist_manual_keyboard", False))
+        self._waist_manual_step = float(np.radians(getattr(cfg_env, "waist_manual_step_deg", 2.0)))
+        self._waist_manual_val = 0.0
+        if self._waist_lean_max != 0.0 or self._waist_manual:
             jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "waist_pitch_joint")
             if jid >= 0:
                 self._waist_dof = int(self.model.jnt_qposadr[jid] - 7)  # index into pd_target (free joint=0..6)
+                self._waist_lo, self._waist_hi = float(self.model.jnt_range[jid][0]), float(self.model.jnt_range[jid][1])
         # resolve bodies if there is (or could be, via keyboard) a load to apply
         if self._wrist_load_n > 0.0 or self._wrist_load_kb:
             for bn in getattr(cfg_env, "wrist_load_bodies", []):
                 bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, bn)
                 if bid >= 0:
                     self._wrist_load_body_ids.append(bid)
-        # optional keyboard listener for '[' / ']' load adjust (own pynput thread; coexists
-        # with the controller's KeyboardCtrl listener — pynput allows multiple listeners).
-        self._wrist_load_queue = None
-        if self._wrist_load_kb:
+        # optional keyboard listener for '[' / ']' load + ',' / '.' waist (own pynput thread;
+        # coexists with the controller's KeyboardCtrl listener — pynput allows multiple).
+        self._kb_queue = None
+        if self._wrist_load_kb or self._waist_manual:
             try:
                 from queue import Queue
 
                 from robojudo.controller.utils.keyboard import KeyboardThread
 
-                self._wrist_load_queue = Queue(maxsize=100)
-                KeyboardThread(self._wrist_load_queue).start()
+                self._kb_queue = Queue(maxsize=100)
+                KeyboardThread(self._kb_queue).start()
             except Exception as e:  # no display / pynput unavailable — silently skip
-                logger.warning(f"[ih] wrist-load keyboard disabled: {e}")
-                self._wrist_load_queue = None
+                logger.warning(f"[ih] env keyboard disabled: {e}")
+                self._kb_queue = None
 
         self.viewer = mujoco_viewer.MujocoViewer(
             self.model,
@@ -194,16 +200,15 @@ class MujocoEnv(Environment):
                 vel = vel * np.asarray(max_cmd, dtype=np.float32).reshape(-1)[:3]
             self._cmd_readout = (vel, None)
 
-    def _poll_wrist_load_keys(self):
-        """[ih] drain this step's keyboard events; '[' decrease / ']' increase the wrist load."""
-        if self._wrist_load_queue is None:
+    def _poll_env_keys(self):
+        """[ih] drain this step's keyboard events: '['/']' wrist load, ','/'.' manual waist."""
+        if self._kb_queue is None:
             return
         from queue import Empty
 
-        changed = False
-        while not self._wrist_load_queue.empty():
+        while not self._kb_queue.empty():
             try:
-                ev = self._wrist_load_queue.get_nowait()
+                ev = self._kb_queue.get_nowait()
             except Empty:
                 break
             if ev.get("type") != "keyboard" or not ev.get("pressed"):
@@ -211,12 +216,16 @@ class MujocoEnv(Environment):
             name = ev.get("name")
             if name == "]":
                 self._wrist_load_n = min(self._wrist_load_max, self._wrist_load_n + self._wrist_load_step)
-                changed = True
+                logger.info(f"[ih] wrist load -> {self._wrist_load_n:.1f} N/wrist")
             elif name == "[":
                 self._wrist_load_n = max(0.0, self._wrist_load_n - self._wrist_load_step)
-                changed = True
-        if changed:
-            logger.info(f"[ih] wrist load -> {self._wrist_load_n:.1f} N/wrist")
+                logger.info(f"[ih] wrist load -> {self._wrist_load_n:.1f} N/wrist")
+            elif self._waist_manual and name == ".":  # lean forward (+)
+                self._waist_manual_val = min(self._waist_hi, self._waist_manual_val + self._waist_manual_step)
+                logger.info(f"[ih] waist_pitch -> {np.degrees(self._waist_manual_val):.0f} deg")
+            elif self._waist_manual and name == ",":  # lean back (-)
+                self._waist_manual_val = max(self._waist_lo, self._waist_manual_val - self._waist_manual_step)
+                logger.info(f"[ih] waist_pitch -> {np.degrees(self._waist_manual_val):.0f} deg")
 
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"
@@ -225,7 +234,7 @@ class MujocoEnv(Environment):
             logger.info("Hand pose-->", hand_pose)
 
         # [ih] poll '[' / ']' to adjust the wrist load before rendering this frame
-        self._poll_wrist_load_keys()
+        self._poll_env_keys()
         # [ih] floating readout above the robot. Velocity/height show the COMMAND (set
         # target, like the wrist load) when the policy provides it via set_cmd_readout;
         # pelvis height also shows the MEASURED value so the command/actual gap is visible
@@ -263,6 +272,9 @@ class MujocoEnv(Environment):
             if self._wrist_load_body_ids:
                 _readout(1.00, [1.0, 0.55, 0.0, 0.9],
                          f"wrist load = {self._wrist_load_n:.0f} N/wrist  ([ - ] +)", 99)
+            if self._waist_manual:
+                _readout(0.86, [1.0, 0.9, 0.2, 0.95],
+                         f"waist_pitch = {np.degrees(self._waist_manual_val):+.0f} deg  (, back / . fwd)", 96)
 
         self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
         if self.viewer.is_alive:
@@ -273,16 +285,22 @@ class MujocoEnv(Environment):
             for bid in self._wrist_load_body_ids:
                 self.data.xfrc_applied[bid, :3] = [0.0, 0.0, -self._wrist_load_n]
 
-        # [ih] deterministic waist-pitch forward lean vs height command (Phase 2): override the
-        # waist_pitch pd_target (non-policy joint) with a rate-limited smoothstep of height.
-        if self._waist_dof is not None and self._cmd_readout is not None and self._cmd_readout[1] is not None:
-            h = self._cmd_readout[1]
-            sl = np.clip((self._waist_lean_hi - h) / max(self._waist_lean_hi - self._waist_lean_lo, 1e-6), 0.0, 1.0)
-            tgt = (sl * sl * (3 - 2 * sl)) * self._waist_lean_max  # smoothstep * max (+ = forward)
-            dmax = self._waist_lean_rate * (self.sim_dt * self.sim_decimation)
-            self._waist_cur += float(np.clip(tgt - self._waist_cur, -dmax, dmax))
-            pd_target = np.array(pd_target, dtype=np.float64)
-            pd_target[self._waist_dof] = self._waist_cur
+        # [ih] waist_pitch override of the (non-policy) waist_pitch pd_target. MANUAL keyboard
+        # (',' / '.', clamped to the joint limit) takes precedence; else the deterministic
+        # height-conditioned forward lean (Phase 2, rate-limited smoothstep).
+        if self._waist_dof is not None:
+            if self._waist_manual:
+                self._waist_cur = float(np.clip(self._waist_manual_val, self._waist_lo, self._waist_hi))
+                pd_target = np.array(pd_target, dtype=np.float64)
+                pd_target[self._waist_dof] = self._waist_cur
+            elif self._waist_lean_max != 0.0 and self._cmd_readout is not None and self._cmd_readout[1] is not None:
+                h = self._cmd_readout[1]
+                sl = np.clip((self._waist_lean_hi - h) / max(self._waist_lean_hi - self._waist_lean_lo, 1e-6), 0.0, 1.0)
+                tgt = (sl * sl * (3 - 2 * sl)) * self._waist_lean_max  # smoothstep * max (+ = forward)
+                dmax = self._waist_lean_rate * (self.sim_dt * self.sim_decimation)
+                self._waist_cur += float(np.clip(tgt - self._waist_cur, -dmax, dmax))
+                pd_target = np.array(pd_target, dtype=np.float64)
+                pd_target[self._waist_dof] = self._waist_cur
 
         for _ in range(self.sim_decimation):
             torque = (pd_target - self.dof_pos) * self.stiffness - self.dof_vel * self.damping
