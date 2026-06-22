@@ -24,6 +24,7 @@ from .env.g1_real_env_cfg import G1RealEnvCfg, G1UnitreeCfg  # noqa: F401
 from .policy.g1_agile_velocity_cfg import G1AgileVelocityPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_agile_velocity_23dof_cfg import G1AgileVelocity23DOFPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_agile_velheight_cfg import G1AgileVelHeightPolicyCfg  # noqa: F401  [ih]
+from .policy.g1_agile_velheight_cfg import G1AgileVelHeightTeacherPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_amo_policy_cfg import G1AmoPolicyCfg  # noqa: F401
 from .policy.g1_asap_policy_cfg import G1AsapLocoPolicyCfg, G1AsapPolicyCfg  # noqa: F401
 from .policy.g1_beyondmimic_policy_cfg import G1BeyondMimicPolicyCfg  # noqa: F401
@@ -236,6 +237,30 @@ class g1_agile_velheight(RlPipelineCfg):
         KeyboardCtrlCfg(),
     ]
     policy: G1AgileVelHeightPolicyCfg = G1AgileVelHeightPolicyCfg()
+
+
+# [ih] TEACHER-in-MuJoCo diagnostic pipeline. Same env as g1_agile_velheight, but runs the
+# privileged non-recurrent TEACHER (obs adds base_lin_vel, available in sim). Used to check
+# whether the teacher stays stable in MuJoCo too (vs the recurrent student's feet-converge).
+# Sim-only (teacher needs privileged obs); NOT a deployable config.
+# Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_agile_velheight_teacher
+@cfg_registry.register
+class g1_agile_velheight_teacher(RlPipelineCfg):
+    """[ih] AGILE velheight wrist20 TEACHER (privileged, non-recurrent) — MuJoCo diagnostic."""
+
+    robot: str = "g1"
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        sim_dt=0.005,
+        sim_decimation=4,
+        xml=(ASSETS_DIR / "robots/g1/g1_29dof_rev_1_0_handmass.xml").as_posix(),
+        wrist_load_n=10.0,
+        wrist_load_keyboard=True,
+        waist_manual_keyboard=True,
+    )
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(),
+    ]
+    policy: G1AgileVelHeightTeacherPolicyCfg = G1AgileVelHeightTeacherPolicyCfg()
 
 
 @cfg_registry.register

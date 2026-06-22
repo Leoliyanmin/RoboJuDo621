@@ -26,6 +26,7 @@ def __getattr__(name: str) -> type[Policy]:
 policy_registry.add("UnitreePolicy", ".unitree_policy")
 policy_registry.add("UnitreeWoGaitPolicy", ".unitree_policy")
 policy_registry.add("AgileVelHeightRecurrentPolicy", ".agile_velheight_policy")  # [ih]
+policy_registry.add("AgileVelHeightTeacherPolicy", ".agile_velheight_policy")  # [ih] teacher diagnostic
 policy_registry.add("SmoothPolicy", ".smooth_policy")
 policy_registry.add("H2HStudentPolicy", ".h2h_student_policy")
 policy_registry.add("AMOPolicy", ".amo_policy")

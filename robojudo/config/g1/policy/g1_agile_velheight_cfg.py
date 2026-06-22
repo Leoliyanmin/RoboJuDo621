@@ -98,3 +98,11 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     height_min: float = 0.40
     height_max: float = 0.72
     height_step: float = 0.01
+
+
+# [ih] TEACHER variant (privileged, non-recurrent) for the RoboJuDo teacher-in-MuJoCo check.
+# Same action space / gains as the recurrent student (distillation matched actions); only the
+# policy class (adds base_lin_vel to obs) and the checkpoint differ. Diagnostic, sim-only.
+class G1AgileVelHeightTeacherPolicyCfg(G1AgileVelHeightPolicyCfg):
+    policy_type: str = "AgileVelHeightTeacherPolicy"
+    policy_name: str = "velheight_frozenhands_wrist20_teacher"

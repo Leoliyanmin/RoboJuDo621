@@ -130,3 +130,46 @@ class AgileVelHeightRecurrentPolicy(Policy):
             raw = self.model(x).cpu().numpy().reshape(-1)  # (12,) raw network output
         self.last_action = raw.copy()  # obs uses the RAW (pre-scale) action
         return raw * self.per_joint_scale  # PolicyWrapper adds default_pos -> pd target
+
+
+@policy_registry.register
+class AgileVelHeightTeacherPolicy(AgileVelHeightRecurrentPolicy):
+    """[ih] AGILE velheight TEACHER (privileged, non-recurrent MLP) for RoboJuDo sim2sim.
+
+    Diagnostic-only: the teacher's actor obs group (PrivilegedVelocityPolicyCfg) is the
+    student's obs PLUS base_lin_vel(3) inserted right after the commands -> 131 dims. That
+    extra term is the privileged bit; it's UNAVAILABLE on hardware but IS available in a
+    MuJoCo sim (RoboJuDo computes it in body frame, quat_rotate_inverse of qvel[0:3]). So
+    the teacher can run in RoboJuDo (NOT on the real robot). Used to check whether the
+    teacher stays stable in MuJoCo too (vs the recurrent student's feet-converge), closing
+    the 'student-specific drift vs MuJoCo-contact' question. The teacher has NO LSTM, so
+    there is no hidden state to carry/reset.
+
+    Obs (131) order (from PrivilegedVelocityPolicyCfg, concatenate_terms=False -> flattened):
+      commands 4 | base_lin_vel 3 | base_ang_vel 3 | projected_gravity 3 |
+      joint_pos_rel 53 (29 body + 24 frozen hand zeros) | joint_vel_rel 53 | last_action 12
+    Action space / gains / per-joint scale are identical to the student (distillation matched
+    actions), so this reuses the velheight PolicyCfg unchanged except policy_name/policy_type.
+    """
+
+    def get_observation(self, env_data, ctrl_data):
+        commands = self._get_commands(ctrl_data)  # (4,)
+        gravity = get_gravity_orientation(env_data.base_quat)  # (3,)
+        lin_scale = getattr(self.obs_scales, "lin_vel", 1.0)
+        base_lin_vel = env_data.base_lin_vel  # (3,) body frame; MujocoEnv already rotates it
+        if base_lin_vel is None:
+            base_lin_vel = np.zeros(3, dtype=np.float32)
+        body_pos_rel = (env_data.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos  # (29,)
+        body_vel_rel = env_data.dof_vel * self.obs_scales.dof_vel  # (29,)
+        hand_zeros = np.zeros(N_HAND, dtype=np.float32)
+
+        obs = np.concatenate([
+            commands,                                          # 4
+            np.asarray(base_lin_vel, dtype=np.float32) * lin_scale,  # 3  [privileged, teacher-only]
+            env_data.base_ang_vel * self.obs_scales.ang_vel,   # 3
+            gravity,                                           # 3
+            body_pos_rel, hand_zeros,                          # 53
+            body_vel_rel, hand_zeros,                          # 53
+            self.last_action,                                  # 12
+        ]).astype(np.float32)
+        return obs, {"commands": commands}
