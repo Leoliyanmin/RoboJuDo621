@@ -22,6 +22,7 @@ from .env.g1_dummy_env_cfg import G1DummyEnvCfg  # noqa: F401
 from .env.g1_mujuco_env_cfg import G1_12MujocoEnvCfg, G1_23MujocoEnvCfg, G1MujocoEnvCfg  # noqa: F401
 from .env.g1_real_env_cfg import G1RealEnvCfg, G1UnitreeCfg  # noqa: F401
 from .policy.g1_agile_velocity_cfg import G1AgileVelocityPolicyCfg  # noqa: F401  [ih]
+from .policy.g1_agile_velocity_23dof_cfg import G1AgileVelocity23DOFPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_agile_velheight_cfg import G1AgileVelHeightPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_amo_policy_cfg import G1AmoPolicyCfg  # noqa: F401
 from .policy.g1_asap_policy_cfg import G1AsapLocoPolicyCfg, G1AsapPolicyCfg  # noqa: F401
@@ -162,6 +163,28 @@ class g1_agile_velocity(RlPipelineCfg):
         KeyboardCtrlCfg(),
     ]
     policy: G1AgileVelocityPolicyCfg = G1AgileVelocityPolicyCfg()
+
+
+# [ih] AGILE Velocity-G1-History-23DOF-Wrist20 (23-DOF G1, 13 controlled = legs+waist_yaw)
+# via RoboJuDo sim2sim. Same velocity-history family as g1_agile_velocity (config-only,
+# UnitreeWoGaitPolicy). Uses the 23-DOF robot/mjcf (g1_23dof_rev_1_0.xml). 200 Hz physics.
+# wrist20-trained, so a sustained 10 N/wrist box-carry load is on by default (set 0 to drop).
+# Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_agile_velocity_23dof
+@cfg_registry.register
+class g1_agile_velocity_23dof(RlPipelineCfg):
+    """[ih] AGILE Velocity-G1-History-23DOF-Wrist20 deployed via RoboJuDo sim2sim."""
+
+    robot: str = "g1"
+    env: G1_23MujocoEnvCfg = G1_23MujocoEnvCfg(
+        sim_dt=0.005,
+        sim_decimation=4,
+        wrist_load_n=10.0,
+        wrist_load_bodies=["left_wrist_roll_rubber_hand", "right_wrist_roll_rubber_hand"],
+    )
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(),
+    ]
+    policy: G1AgileVelocity23DOFPolicyCfg = G1AgileVelocity23DOFPolicyCfg()
 
 
 # [ih] AGILE velocity-HEIGHT frozen-hands RECURRENT (LSTM) policy, sim2sim.
