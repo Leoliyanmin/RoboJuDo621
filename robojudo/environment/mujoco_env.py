@@ -38,6 +38,7 @@ class MujocoEnv(Environment):
         self._wrist_load_max = float(getattr(cfg_env, "wrist_load_max", 30.0))
         self._wrist_load_show = bool(getattr(cfg_env, "wrist_load_show", True))
         self._wrist_load_body_ids = []
+        self._cmd_readout = None  # [ih] (vel_xyz_real, height_cmd_or_None) from the policy
         # resolve bodies if there is (or could be, via keyboard) a load to apply
         if self._wrist_load_n > 0.0 or self._wrist_load_kb:
             for bn in getattr(cfg_env, "wrist_load_bodies", []):
@@ -164,6 +165,24 @@ class MujocoEnv(Environment):
             self._torso_quat = fk_info[self._torso_name]["quat"]
             self._torso_pos = fk_info[self._torso_name]["pos"]
 
+    def set_cmd_readout(self, commands, max_cmd=None):
+        """[ih] store the policy's command (set target) for the viewer readout.
+
+        commands len 4 -> [vx, vy, wz, height] already in real units (velheight policy);
+        len 3 -> normalized [vx, vy, wz] (UnitreeWoGaitPolicy) -> scale by max_cmd to m/s.
+        """
+        if commands is None:
+            self._cmd_readout = None
+            return
+        c = np.asarray(commands, dtype=np.float32).reshape(-1)
+        if c.shape[0] >= 4:
+            self._cmd_readout = (c[:3].copy(), float(c[3]))
+        else:
+            vel = c[:3].copy()
+            if max_cmd is not None:
+                vel = vel * np.asarray(max_cmd, dtype=np.float32).reshape(-1)[:3]
+            self._cmd_readout = (vel, None)
+
     def _poll_wrist_load_keys(self):
         """[ih] drain this step's keyboard events; '[' decrease / ']' increase the wrist load."""
         if self._wrist_load_queue is None:
@@ -196,13 +215,14 @@ class MujocoEnv(Environment):
 
         # [ih] poll '[' / ']' to adjust the wrist load before rendering this frame
         self._poll_wrist_load_keys()
-        # [ih] floating readout above the robot: measured velocity + pelvis height + wrist load.
-        # measured (from sim state), not commanded — robust, no policy/unit coupling.
+        # [ih] floating readout above the robot. Velocity/height show the COMMAND (set
+        # target, like the wrist load) when the policy provides it via set_cmd_readout;
+        # pelvis height also shows the MEASURED value so the command/actual gap is visible
+        # (e.g. a deep-squat height cmd of 0.40 that the policy only tracks to ~0.48).
         if self._wrist_load_show:
             root = self.data.qpos.astype(np.float32)[:3]
             x, y, z = float(root[0]), float(root[1]), float(root[2])
-            vb = getattr(self, "_base_lin_vel", np.zeros(3))   # body-frame [vx, vy, vz]
-            wb = getattr(self, "_base_ang_vel", np.zeros(3))   # body-frame [wx, wy, wz]
+            cmd = self._cmd_readout
 
             def _readout(dz, color, text, mid):
                 self.viewer.add_marker(
@@ -214,10 +234,21 @@ class MujocoEnv(Environment):
                     id=mid,
                 )
 
-            _readout(1.28, [0.2, 0.8, 1.0, 0.9],
-                     f"vel  vx={float(vb[0]):+.2f}  vy={float(vb[1]):+.2f}  wz={float(wb[2]):+.2f} (m/s,rad/s)", 97)
-            _readout(1.14, [0.4, 1.0, 0.4, 0.9],
-                     f"pelvis height = {z:.2f} m", 98)
+            if cmd is not None:
+                vel, h_cmd = cmd
+                _readout(1.28, [0.2, 0.8, 1.0, 0.9],
+                         f"vel cmd  vx={float(vel[0]):+.2f} vy={float(vel[1]):+.2f} wz={float(vel[2]):+.2f}", 97)
+                if h_cmd is not None:
+                    _readout(1.14, [0.4, 1.0, 0.4, 0.9],
+                             f"height cmd {h_cmd:.2f} / now {z:.2f} m", 98)
+                else:
+                    _readout(1.14, [0.4, 1.0, 0.4, 0.9], f"pelvis height = {z:.2f} m", 98)
+            else:  # fallback: measured velocity (no command piped in)
+                vb = getattr(self, "_base_lin_vel", np.zeros(3))
+                wb = getattr(self, "_base_ang_vel", np.zeros(3))
+                _readout(1.28, [0.2, 0.8, 1.0, 0.9],
+                         f"vel  vx={float(vb[0]):+.2f} vy={float(vb[1]):+.2f} wz={float(wb[2]):+.2f}", 97)
+                _readout(1.14, [0.4, 1.0, 0.4, 0.9], f"pelvis height = {z:.2f} m", 98)
             if self._wrist_load_body_ids:
                 _readout(1.00, [1.0, 0.55, 0.0, 0.9],
                          f"wrist load = {self._wrist_load_n:.0f} N/wrist  ([ - ] +)", 99)

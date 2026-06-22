@@ -219,6 +219,11 @@ class RlPipeline(Pipeline):
         obs, extras = self.policy.get_observation(env_data, ctrl_data)
         pd_target = self.policy.get_pd_target(obs)
 
+        # [ih] feed the policy's command to the env for the on-screen readout (set target,
+        # vs the env's measured state). Guarded — only MujocoEnv implements it.
+        if hasattr(self.env, "set_cmd_readout"):
+            self.env.set_cmd_readout(extras.get("commands"), getattr(self.policy, "max_cmd", None))
+
         # -- Detect motion done --
         callbacks = extras.get("CALLBACK", [])
         if "[MOTION_DONE]" in callbacks and not self._blend_out_active:
