@@ -39,6 +39,17 @@ class MujocoEnv(Environment):
         self._wrist_load_show = bool(getattr(cfg_env, "wrist_load_show", True))
         self._wrist_load_body_ids = []
         self._cmd_readout = None  # [ih] (vel_xyz_real, height_cmd_or_None) from the policy
+        # [ih] deterministic waist-pitch forward lean vs height command (Phase 2)
+        self._waist_lean_max = float(np.radians(getattr(cfg_env, "waist_squat_lean_deg", 0.0) or 0.0))
+        self._waist_lean_hi = float(getattr(cfg_env, "waist_lean_hi", 0.65))
+        self._waist_lean_lo = float(getattr(cfg_env, "waist_lean_lo", 0.50))
+        self._waist_lean_rate = float(np.radians(getattr(cfg_env, "waist_lean_rate_dps", 60.0)))
+        self._waist_cur = 0.0
+        self._waist_dof = None
+        if self._waist_lean_max != 0.0:
+            jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "waist_pitch_joint")
+            if jid >= 0:
+                self._waist_dof = int(self.model.jnt_qposadr[jid] - 7)  # index into pd_target (free joint=0..6)
         # resolve bodies if there is (or could be, via keyboard) a load to apply
         if self._wrist_load_n > 0.0 or self._wrist_load_kb:
             for bn in getattr(cfg_env, "wrist_load_bodies", []):
@@ -261,6 +272,17 @@ class MujocoEnv(Environment):
         if self._wrist_load_body_ids:
             for bid in self._wrist_load_body_ids:
                 self.data.xfrc_applied[bid, :3] = [0.0, 0.0, -self._wrist_load_n]
+
+        # [ih] deterministic waist-pitch forward lean vs height command (Phase 2): override the
+        # waist_pitch pd_target (non-policy joint) with a rate-limited smoothstep of height.
+        if self._waist_dof is not None and self._cmd_readout is not None and self._cmd_readout[1] is not None:
+            h = self._cmd_readout[1]
+            sl = np.clip((self._waist_lean_hi - h) / max(self._waist_lean_hi - self._waist_lean_lo, 1e-6), 0.0, 1.0)
+            tgt = (sl * sl * (3 - 2 * sl)) * self._waist_lean_max  # smoothstep * max (+ = forward)
+            dmax = self._waist_lean_rate * (self.sim_dt * self.sim_decimation)
+            self._waist_cur += float(np.clip(tgt - self._waist_cur, -dmax, dmax))
+            pd_target = np.array(pd_target, dtype=np.float64)
+            pd_target[self._waist_dof] = self._waist_cur
 
         for _ in range(self.sim_decimation):
             torque = (pd_target - self.dof_pos) * self.stiffness - self.dof_vel * self.damping

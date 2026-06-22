@@ -51,6 +51,15 @@ class MujocoEnvCfg(EnvCfg):
     wrist_load_show: bool = True
     """Show the wrist-load readout label in the viewer when the load feature is active."""
 
+    # [ih] deterministic waist-pitch forward lean as a function of the height command (Phase 2
+    # of the deep-squat plan). Overrides the waist_pitch pd_target (a non-policy joint held at
+    # default) with smoothstep(hi->lo of height) * max lean (+ = forward). 0 deg = off.
+    # Needs the height command piped in via set_cmd_readout (velheight pipeline).
+    waist_squat_lean_deg: float = 0.0
+    waist_lean_hi: float = 0.65  # height >= hi -> no lean
+    waist_lean_lo: float = 0.50  # height <= lo -> full lean
+    waist_lean_rate_dps: float = 60.0  # rate limit on the applied lean (deg/s)
+
 
 class RobotEnvCfg(EnvCfg):
     env_type: str = "DummyEnv"
