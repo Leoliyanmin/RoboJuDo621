@@ -92,7 +92,9 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     commands_map: list[list[float]] = [[-1.0, 0.0, 1.0], [1.0, 0.0, -1.0], [1.0, 0.0, -1.0]]
 
     # height command (target base height): r = taller, f = squat lower.
+    # [ih] match the AGILE training range base_height=(0.4, DEFAULT_PELVIS_HEIGHT=0.72).
+    # (was 0.50/0.74 — squat clamped 10 cm short of trained, stand 2 cm past it.)
     height_default: float = 0.72
-    height_min: float = 0.50
-    height_max: float = 0.74
+    height_min: float = 0.40
+    height_max: float = 0.72
     height_step: float = 0.01
