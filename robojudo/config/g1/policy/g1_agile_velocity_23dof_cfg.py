@@ -77,7 +77,7 @@ class G1AgileVelocity23DOFPolicyCfg(UnitreeWoGaitPolicyCfg):
 
     robot: str = "g1"
     # -> assets/models/g1/unitree/velocity_history_23dof_wrist20.pt
-    policy_name: str = "velocity_history_23dof_wrist20"
+    policy_name: str = "velocity_history_23dof"
 
     obs_dof: DoFConfig = G1AgileVelocity23DoF()
     action_dof: DoFConfig = obs_dof

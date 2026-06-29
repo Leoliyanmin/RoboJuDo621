@@ -190,7 +190,7 @@ class g1_agile_velocity_23dof(RlPipelineCfg):
     env: G1_23MujocoEnvCfg = G1_23MujocoEnvCfg(
         sim_dt=0.005,
         sim_decimation=4,
-        wrist_load_n=10.0,
+        wrist_load_n=0.0,
         wrist_load_bodies=["left_wrist_roll_rubber_hand", "right_wrist_roll_rubber_hand"],
         # [ih] suppress UnitreeWoGaitPolicy.debug_viz command arrows (flicker w/ keys).
         visualize_extras=False,
