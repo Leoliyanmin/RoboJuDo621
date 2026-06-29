@@ -25,6 +25,11 @@ class PolicyCfg(Config):
     action_scale: float = 1.0
     action_clip: float | None = None  # clip action to [-action_clip, action_clip]
     action_beta: float = 1.0  # action smoothing factor
+    # [ih] EMA smoothing on the velocity COMMAND before it enters the obs. 1.0 = off (raw,
+    # original behaviour). <1.0 ramps step command changes (e.g. key-release vx 0.4->0 snap)
+    # over a few steps so the stop transient doesn't kick the legs into a latency-driven
+    # vertical resonance. weight on the NEW command; ~0.1 ≈ 0.2s ramp at 50Hz.
+    cmd_smooth_alpha: float = 1.0
 
     # history settings
     history_length: int = 0  # number of history observations to use

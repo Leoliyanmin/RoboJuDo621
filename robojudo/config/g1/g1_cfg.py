@@ -19,10 +19,14 @@ from .ctrl.g1_motion_ctrl_cfg import (  # noqa: F401
 )
 from .ctrl.g1_twist_redis_ctrl_cfg import G1TwistRedisCtrlCfg  # noqa: F401
 from .env.g1_dummy_env_cfg import G1DummyEnvCfg  # noqa: F401
+from .env.g1_env_cfg import G1_23RaisedArmsDoF  # noqa: F401
 from .env.g1_mujuco_env_cfg import G1_12MujocoEnvCfg, G1_23MujocoEnvCfg, G1MujocoEnvCfg  # noqa: F401
-from .env.g1_real_env_cfg import G1RealEnvCfg, G1UnitreeCfg  # noqa: F401
+from .env.g1_real_env_cfg import G1_23RealEnvCfg, G1RealEnvCfg, G1UnitreeCfg, G1_23_ARM_SDK_MOTOR_IDX  # noqa: F401
 from .policy.g1_agile_velocity_cfg import G1AgileVelocityPolicyCfg  # noqa: F401  [ih]
-from .policy.g1_agile_velocity_23dof_cfg import G1AgileVelocity23DOFPolicyCfg  # noqa: F401  [ih]
+from .policy.g1_agile_velocity_23dof_cfg import (  # noqa: F401  [ih]
+    G1AgileVelocity23DoF,
+    G1AgileVelocity23DOFPolicyCfg,
+)
 from .policy.g1_agile_velheight_cfg import G1AgileVelHeightPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_agile_velheight_cfg import G1AgileVelHeightTeacherPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_amo_policy_cfg import G1AmoPolicyCfg  # noqa: F401
@@ -203,6 +207,156 @@ class g1_agile_velocity_23dof(RlPipelineCfg):
     policy: G1AgileVelocity23DOFPolicyCfg = G1AgileVelocity23DOFPolicyCfg()
 
 
+@cfg_registry.register
+class g1_agile_velocity_23dof_real(g1_agile_velocity_23dof):
+    """[ih] AGILE 23-DoF velocity-history policy on real G1 hardware.
+
+    This is for native 23-DoF G1 hardware. For a 29-motor G1, use a 29-DoF
+    real env and let RoboJuDo's DoFAdapter expand the policy action by joint name.
+    """
+
+    prepare_ramp_seconds: float = 6.0
+    prepare_progress_bar: bool = False
+
+    env: G1_23RealEnvCfg = G1_23RealEnvCfg(
+        env_type="UnitreeCppEnv",
+        # [ih] odometry_type left at the G1_23RealEnvCfg default ("UNITREE"). It was briefly
+        # set to "DUMMY"/enable_odometry=False to skip the unused per-step sport_state query,
+        # but that disabled the C++ DDS sport_state setup and made the Python arm_sdk
+        # ChannelFactoryInitialize fail with cyclonedds BAD_PARAMETER on the rt/arm_sdk topic.
+        # Keeping odometry ON restores the DDS state under which arm_sdk works.
+        unitree=G1UnitreeCfg(
+            net_if="enP8p1s0",
+            # [ih] Arms are driven via the SAME rt/lowcmd as the legs (NOT arm_sdk). CONFIRMED
+            # by hand that lowcmd actuates the arms — the earlier "arms fell limp" was a visual
+            # misread (the trained pose just looks like hanging). The arm slots keep env kp
+            # 40 / wrist 20, kd 2, held at G1_23RaisedArmsDoF.default_pos (edit that to change
+            # the held arm pose). rt/arm_sdk is NOT usable here: run_pipeline's
+            # MotionSwitcher.ReleaseMode() kills the high-level service that subscribes to it
+            # (verified matched=False with the pipeline up). None also makes _init_arm_sdk a
+            # no-op, so there's no Python/C++ cyclonedds conflict / BAD_PARAMETER crash.
+            arm_sdk_motor_idx=None,
+        ),
+        dof=G1_23RaisedArmsDoF(),
+        forward_kinematic=None,
+        update_with_fk=False,
+    )
+    # [ih] FINAL real-only PD tune (sim2sim/training untouched) that killed the real fore-aft
+    # sagittal limit cycle. Symptom: on real (not in sim) the robot did a rhythmic, sometimes
+    # growing, knee-driven fore-aft sway, worst at the move->stop transition. Root causes:
+    # (1) a delay-driven leg resonance, fixed by lowering loop GAIN (knee kp) for phase margin
+    #     + raising firmware PD kd on the sagittal movers (knee, hip_pitch, ankle). kd is the
+    #     robust lever — it acts on true joint velocity in the ~1kHz firmware PD, so it damps
+    #     the resonance WITHOUT adding the 50Hz-loop lag that obs-side filtering does (obs
+    #     low-pass on dof_vel/IMU was tried and either did nothing or AMPLIFIED it -> disabled).
+    # (2) the stop TRIGGER: key release snapped vx->0 in one step; cmd_smooth_alpha ramps it.
+    # action_dof order (IsaacLab): [Lhip_p, Rhip_p, waist_yaw, Lhip_r, Rhip_r, Lhip_y, Rhip_y,
+    #   Lknee, Rknee, Lankle_p, Rankle_p, Lankle_r, Rankle_r].
+    # vs trained: knee kp 200->130; knee kd 5->8; hip_pitch kd 2.5->4; ankle kd 0.2/0.1->0.5/0.3.
+    # Only knee kp was lowered; everything else is added damping -> stability margin only grows.
+    # To fully revert: stiffness knee->200, damping->[2.5,2.5,5,2.5,2.5,2.5,2.5,5,5,0.2,0.2,0.1,0.1].
+    policy: G1AgileVelocity23DOFPolicyCfg = G1AgileVelocity23DOFPolicyCfg(
+        action_dof=G1AgileVelocity23DoF(
+            # knee kp 130 -> 115: the bent-elbow arm pose (G1_23RaisedArmsDoF default) moved the
+            # CoM forward and re-excited the backward-stop knee resonance; lower kp = more
+            # phase/gain margin. Watch for knee sag at 115 (revert to 130 / bump knee kd if too soft).
+            stiffness=[100.0, 100.0, 300.0, 100.0, 100.0, 100.0, 100.0, 115.0, 115.0, 20.0, 20.0, 20.0, 20.0],
+            damping=[4.0, 4.0, 5.0, 2.5, 2.5, 2.5, 2.5, 8.0, 8.0, 0.5, 0.5, 0.3, 0.3],
+        ),
+        # [ih] All the instability concentrates at the stop transition: key release snaps vx
+        # 0.4->0 in one step, and that command step kicks the legs into the sagittal resonance.
+        # Ramp the command instead so the stop is gentle. 0.1 (~0.2s) is the sweet spot:
+        # forward-stop immediate, backward-stop settles ~7s. NOTE: going LOWER (0.06) makes
+        # backward WORSE — the slower command ramp just prolongs the backward coast-down. So
+        # the ~7s is mostly decel/coast time, not residual oscillation; smoothing can't shorten
+        # it (wrong direction). Keep 0.1.
+        cmd_smooth_alpha=0.1,
+    )
+    ctrl: list[UnitreeCtrlCfg] = [
+        UnitreeCtrlCfg(),
+    ]
+    do_safety_check: bool = True
+
+
+@cfg_registry.register
+class g1_agile_velocity_23dof_real_keyboard(g1_agile_velocity_23dof_real):
+    """Keyboard teleop variant for the real 23-DoF velocity-history policy."""
+
+    ctrl: list[KeyboardCtrlCfg | UnitreeCtrlCfg] = [
+        KeyboardCtrlCfg(
+            triggers={
+                "r": "[MOTION_RESET]",
+                "R": "[MOTION_RESET]",
+                "o": "[SHUTDOWN]",
+                "O": "[SHUTDOWN]",
+                "Key.esc": "[SHUTDOWN]",
+                "Key.ctrl_c": "[SHUTDOWN]",
+            },
+        ),
+        UnitreeCtrlCfg(),
+    ]
+
+
+@cfg_registry.register
+class g1_agile_velocity_23dof_real_py(g1_agile_velocity_23dof_real):
+    """Python-SDK fallback for the real 23-DoF velocity-history policy."""
+
+    env: G1_23RealEnvCfg = G1_23RealEnvCfg(
+        env_type="UnitreeEnv",
+        unitree=G1UnitreeCfg(
+            net_if="enP8p1s0",
+            arm_sdk_motor_idx=G1_23_ARM_SDK_MOTOR_IDX,
+        ),
+        dof=G1_23RaisedArmsDoF(),
+        forward_kinematic=None,
+        update_with_fk=False,
+    )
+
+
+@cfg_registry.register
+class g1_agile_velocity_23dof_real_py_keyboard(g1_agile_velocity_23dof_real_py):
+    """Keyboard teleop variant using unitree_sdk2py instead of unitree_cpp."""
+
+    ctrl: list[KeyboardCtrlCfg | UnitreeCtrlCfg] = [
+        KeyboardCtrlCfg(
+            triggers={
+                "r": "[MOTION_RESET]",
+                "R": "[MOTION_RESET]",
+                "o": "[SHUTDOWN]",
+                "O": "[SHUTDOWN]",
+                "Key.esc": "[SHUTDOWN]",
+                "Key.ctrl_c": "[SHUTDOWN]",
+            },
+        ),
+        UnitreeCtrlCfg(),
+    ]
+
+
+@cfg_registry.register
+class g1_ih_velocity_23dof(g1_agile_velocity_23dof):
+    """Compatibility alias for the IH 23-DoF velocity-history sim2sim config."""
+
+
+@cfg_registry.register
+class g1_ih_velocity_23dof_real(g1_agile_velocity_23dof_real):
+    """Compatibility alias for deploying the IH 23-DoF velocity-history policy."""
+
+
+@cfg_registry.register
+class g1_ih_velocity_23dof_real_keyboard(g1_agile_velocity_23dof_real_keyboard):
+    """Compatibility alias for keyboard deployment of the IH 23-DoF velocity policy."""
+
+
+@cfg_registry.register
+class g1_ih_velocity_23dof_real_py(g1_agile_velocity_23dof_real_py):
+    """Compatibility alias for deploying the IH policy through unitree_sdk2py."""
+
+
+@cfg_registry.register
+class g1_ih_velocity_23dof_real_py_keyboard(g1_agile_velocity_23dof_real_py_keyboard):
+    """Compatibility alias for keyboard deployment through unitree_sdk2py."""
+
+
 # [ih] AGILE velocity-HEIGHT frozen-hands RECURRENT (LSTM) policy, sim2sim.
 # Keyboard: w/a/s/d=vx/vy, q/e=yaw, r/f=stand taller/squat lower. obs 128 (no history),
 # 12 leg joints controlled, 24 DFQ hand joints zero-padded (frozen). 200Hz physics.
@@ -237,6 +391,70 @@ class g1_agile_velheight(RlPipelineCfg):
         KeyboardCtrlCfg(),
     ]
     policy: G1AgileVelHeightPolicyCfg = G1AgileVelHeightPolicyCfg()
+
+
+@cfg_registry.register
+class g1_agile_velheight_real(g1_agile_velheight):
+    """[ih] AGILE velocity-height recurrent student on real G1 hardware."""
+
+    env: G1RealEnvCfg = G1RealEnvCfg(
+        env_type="UnitreeCppEnv",
+        unitree=G1UnitreeCfg(
+            net_if="enP8p1s0",
+        ),
+        forward_kinematic=None,
+        update_with_fk=False,
+    )
+    ctrl: list[UnitreeCtrlCfg] = [
+        UnitreeCtrlCfg(),
+    ]
+    do_safety_check: bool = True
+
+
+@cfg_registry.register
+class g1_ih_velheight_23dof(g1_agile_velheight):
+    """Compatibility alias for the IH velocity-height 23-DoF sim2sim config."""
+
+    env: G1_23MujocoEnvCfg = G1_23MujocoEnvCfg(
+        sim_dt=0.005,
+        sim_decimation=4,
+        wrist_load_n=10.0,
+        wrist_load_bodies=["left_wrist_roll_rubber_hand", "right_wrist_roll_rubber_hand"],
+        wrist_load_keyboard=True,
+    )
+
+
+@cfg_registry.register
+class g1_ih_velheight_23dof_real(g1_ih_velheight_23dof):
+    """Deploy the IH velocity-height policy on native 23-DoF G1 hardware."""
+
+    env: G1_23RealEnvCfg = G1_23RealEnvCfg(
+        env_type="UnitreeCppEnv",
+        unitree=G1UnitreeCfg(
+            net_if="enP8p1s0",
+            arm_sdk_motor_idx=G1_23_ARM_SDK_MOTOR_IDX,
+        ),
+        forward_kinematic=None,
+        update_with_fk=False,
+    )
+    ctrl: list[UnitreeCtrlCfg] = [
+        UnitreeCtrlCfg(),
+    ]
+    do_safety_check: bool = True
+
+
+@cfg_registry.register
+class g1_ih_velheight_23dof_real_py(g1_ih_velheight_23dof_real):
+    """Python-SDK fallback for the IH velocity-height policy on 23-DoF G1 hardware."""
+
+    env: G1_23RealEnvCfg = G1_23RealEnvCfg(
+        env_type="UnitreeEnv",
+        unitree=G1UnitreeCfg(
+            net_if="enP8p1s0",
+        ),
+        forward_kinematic=None,
+        update_with_fk=False,
+    )
 
 
 # [ih] TEACHER-in-MuJoCo diagnostic pipeline. Same env as g1_agile_velheight, but runs the

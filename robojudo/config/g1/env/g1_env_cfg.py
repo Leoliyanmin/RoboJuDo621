@@ -152,6 +152,23 @@ class G1_23DoF(G1_29DoF):
     ]
 
 
+class G1_23RaisedArmsDoF(G1_23DoF):
+    """23-DoF G1 default pose with conservative mirrored arms for real deployment."""
+
+    default_pos: list[float] | None = [
+        *[-0.1, 0.0, 0.0, 0.3, -0.2, 0.0],
+        *[-0.1, 0.0, 0.0, 0.3, -0.2, 0.0],
+        *[0.0, 0.0, 0.0],
+        # arms (shoulder p/r/y, elbow, wrist r/p/y), held via rt/lowcmd kp=40. The 4th value
+        # is the elbow. [ih] SIGN: bigger = straighter (1.5 was ~straight), smaller = more
+        # bent; elbow limit [-1.047, 2.094], straight ~1.5, so ~0.0 ≈ 90deg bend. Set 0.0 for
+        # a clear bent pose. Go negative (toward -1.0) for more tuck; 1st value 0.2 is
+        # shoulder_pitch (raise to lift the whole arm).
+        *[0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        *[0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    ]
+
+
 class G1_12DoF(G1_29DoF):
     # num_dofs as 12
     _subset: bool = True  # if True, simplely inheritance & pick

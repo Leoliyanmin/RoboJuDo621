@@ -25,12 +25,39 @@ class UnitreeCppEnv(Environment):
         cfg_unitree: UnitreeEnvCfg.UnitreeCfg = cfg_env.unitree
 
         cfg_unitree_dict: dict = cfg_unitree.to_dict()
-        cfg_unitree_dict["num_dofs"] = self.num_dofs
-        cfg_unitree_dict["stiffness"] = self.stiffness
-        cfg_unitree_dict["damping"] = self.damping
 
         self.robot = cfg_unitree.robot
         self._dof_idx = cfg_env.joint2motor_idx
+        self._arm_sdk_motor_idx = list(cfg_unitree.arm_sdk_motor_idx or [])
+        self._arm_sdk_motor_set = set(self._arm_sdk_motor_idx)
+        self._arm_sdk_enable_idx = cfg_unitree.arm_sdk_enable_idx
+        self._arm_sdk_topic = cfg_unitree.arm_sdk_topic
+        self._arm_sdk_pub = None
+        self._arm_sdk_crc = None
+        self._arm_sdk_lowcmd_factory = None
+
+        # [废除 2026-06-29] 曾尝试对 dof_vel 和 IMU(ang_vel/quat) 做 EMA 低通来压"前后晃"残余：
+        # dof_vel 滤波实测无效；IMU 滤波不仅无效，还因引入相位滞后把延迟型振荡推向发散。
+        # 结论：观测侧低通不适合延迟/共振型极限环，已移除。真正有效的是腿部 PD 重调（见
+        # docs/23dof部署.md）。
+        if self._dof_idx is not None:
+            self._dof_idx = list(self._dof_idx)
+            if len(set(self._dof_idx)) != len(self._dof_idx):
+                raise ValueError("joint2motor_idx contains duplicate motor indices")
+            self._motor_num_dofs = cfg_unitree.motor_cmd_num_dofs or (max(self._dof_idx) + 1)
+            if self._motor_num_dofs <= max(self._dof_idx):
+                raise ValueError("motor_cmd_num_dofs must cover all joint2motor_idx entries")
+        else:
+            self._motor_num_dofs = self.num_dofs
+        if self._arm_sdk_motor_idx and self._dof_idx is None:
+            raise ValueError("arm_sdk_motor_idx requires joint2motor_idx")
+        if self._arm_sdk_motor_idx and self._motor_num_dofs <= max(self._arm_sdk_motor_idx):
+            raise ValueError("motor_cmd_num_dofs must cover all arm_sdk_motor_idx entries")
+
+        cfg_unitree_dict["num_dofs"] = self._motor_num_dofs
+        cfg_unitree_dict["stiffness"] = self._lowcmd_gain_slots(self.stiffness)
+        cfg_unitree_dict["damping"] = self._lowcmd_gain_slots(self.damping)
+
         self._odometry_type = cfg_env.odometry_type
         if self._odometry_type == "ZED":
             assert self.cfg_env.zed_cfg is not None, "zed_cfg must be set if odometry_type is 'ZED'"
@@ -54,6 +81,7 @@ class UnitreeCppEnv(Environment):
         self.robot_state: RobotState = None  # pyright: ignore[reportAttributeAccessIssue]
 
         self.unitree = UnitreeController(cfg_unitree_dict)
+        self._init_arm_sdk()
 
         # born place alignment extra for h1 torso
         if self.robot == "h1":
@@ -61,6 +89,118 @@ class UnitreeCppEnv(Environment):
 
         # time.sleep(1)  # wait for unitree init
         self.self_check()
+
+    def _expand_motor_slots(self, values, fill=0.0) -> list[float]:
+        values = np.asarray(values, dtype=np.float64)
+        if self._dof_idx is None:
+            assert values.shape[0] == self.num_dofs, f"values len should be {self.num_dofs}"
+            return values.tolist()
+
+        assert values.shape[0] == self.num_dofs, f"values len should be env num_dofs {self.num_dofs}"
+        expanded = np.full(self._motor_num_dofs, fill, dtype=np.float64)
+        expanded[np.asarray(self._dof_idx, dtype=np.int64)] = values
+        return expanded.tolist()
+
+    def _lowcmd_gain_slots(self, values) -> list[float]:
+        expanded = self._expand_motor_slots(values, fill=0.0)
+        for motor_idx in self._arm_sdk_motor_idx:
+            expanded[motor_idx] = 0.0
+        return expanded
+
+    def _expand_motor_positions(self, pd_target) -> list[float]:
+        pd_target = np.asarray(pd_target, dtype=np.float64)
+        if self._dof_idx is None:
+            return pd_target.tolist()
+
+        if self.robot_state is not None and len(self.robot_state.motor_state.q) == self._motor_num_dofs:
+            positions = np.asarray(self.robot_state.motor_state.q, dtype=np.float64)
+        else:
+            positions = np.zeros(self._motor_num_dofs, dtype=np.float64)
+        positions[np.asarray(self._dof_idx, dtype=np.int64)] = pd_target
+        return positions.tolist()
+
+    def _init_arm_sdk(self):
+        if not self._arm_sdk_motor_idx:
+            return
+
+        from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelPublisher  # type: ignore
+        from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_  # type: ignore
+        from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_  # type: ignore
+        from unitree_sdk2py.utils.crc import CRC  # type: ignore
+
+        # [ih] arm_sdk uses the Python cyclonedds while the legs run on the C++ unitree_cpp
+        # cyclonedds in the SAME process. Creating the rt/arm_sdk topic can fail with
+        # cyclonedds BAD_PARAMETER (two DDS stacks coexisting; env-dependent — it worked
+        # before, then started failing). That MUST NOT crash the whole pipeline / kill the
+        # working locomotion. On failure: warn, leave _arm_sdk_pub=None so _send_arm_sdk is a
+        # no-op and the arms simply stay limp (same as during the gait tuning); legs run fine.
+        try:
+            ChannelFactoryInitialize(0, self.cfg_env.unitree.net_if)
+            self._arm_sdk_pub = ChannelPublisher(self._arm_sdk_topic, LowCmd_)
+            self._arm_sdk_pub.Init()
+            self._arm_sdk_crc = CRC()
+            self._arm_sdk_lowcmd_factory = unitree_hg_msg_dds__LowCmd_
+            logger.info(
+                "G1 arm_sdk enabled on %s for motor slots %s",
+                self._arm_sdk_topic,
+                self._arm_sdk_motor_idx,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._arm_sdk_pub = None
+            logger.error(
+                "G1 arm_sdk init FAILED (%s) — arms will stay limp, locomotion continues. "
+                "Likely a C++/Python cyclonedds coexistence conflict; try rebooting the robot "
+                "or check CYCLONEDDS_URI.",
+                exc,
+            )
+
+    def _arm_sdk_q_template(self) -> dict[int, float]:
+        if self.robot_state is None:
+            return {motor_idx: 0.0 for motor_idx in self._arm_sdk_motor_idx}
+        return {
+            motor_idx: float(self.robot_state.motor_state.q[motor_idx])
+            for motor_idx in self._arm_sdk_motor_idx
+        }
+
+    def _send_arm_sdk(self, pd_target, weight: float = 1.0):
+        if self._arm_sdk_pub is None:
+            return
+        assert self._dof_idx is not None, "arm_sdk requires joint2motor_idx"
+        assert self._arm_sdk_crc is not None
+        assert self._arm_sdk_lowcmd_factory is not None
+
+        pd_target = np.asarray(pd_target, dtype=np.float64)
+        q_by_motor = self._arm_sdk_q_template()
+        kp_by_motor = {motor_idx: 0.0 for motor_idx in self._arm_sdk_motor_idx}
+        kd_by_motor = {motor_idx: 0.0 for motor_idx in self._arm_sdk_motor_idx}
+
+        for env_idx, motor_idx in enumerate(self._dof_idx):
+            if motor_idx not in self._arm_sdk_motor_set:
+                continue
+            q_by_motor[motor_idx] = float(pd_target[env_idx])
+            kp_by_motor[motor_idx] = float(self.stiffness[env_idx])
+            kd_by_motor[motor_idx] = float(self.damping[env_idx])
+
+        cmd = self._arm_sdk_lowcmd_factory()
+        cmd.motor_cmd[self._arm_sdk_enable_idx].q = float(weight)
+        for motor_idx in self._arm_sdk_motor_idx:
+            motor_cmd = cmd.motor_cmd[motor_idx]
+            motor_cmd.tau = 0.0
+            motor_cmd.q = q_by_motor[motor_idx]
+            motor_cmd.dq = 0.0
+            motor_cmd.kp = kp_by_motor[motor_idx]
+            motor_cmd.kd = kd_by_motor[motor_idx]
+
+        cmd.crc = self._arm_sdk_crc.Crc(cmd)
+        self._arm_sdk_pub.Write(cmd)
+
+    def _release_arm_sdk(self):
+        if self._arm_sdk_pub is None:
+            return
+        target = self.dof_pos if self.robot_state is not None else self.default_pos
+        for _ in range(3):
+            self._send_arm_sdk(target, weight=0.0)
+            time.sleep(0.02)
 
     def self_check(self):
         for _ in range(30):
@@ -107,10 +247,14 @@ class UnitreeCppEnv(Environment):
                 dtype=np.float32,
             )
 
+        # [废除 2026-06-29] dof_vel EMA 低通已移除（实测对前后晃无效，见 docs/23dof部署.md）。
+
         if self.robot == "g1":
             quat = np.array(self.robot_state.imu_state.quaternion, dtype=np.float32)[[1, 2, 3, 0]]
             ang_vel = np.array(self.robot_state.imu_state.gyroscope, dtype=np.float32)
             rpy = np.array(self.robot_state.imu_state.rpy, dtype=np.float32)
+
+            # [废除 2026-06-29] IMU(ang_vel/quat) EMA 低通已移除（无效且放大延迟型振荡，见 docs/23dof部署.md）。
 
             if self.born_place_align:
                 quat = self.base_align.align_quat(quat)
@@ -162,9 +306,10 @@ class UnitreeCppEnv(Environment):
         #     logger.warning(f"JOINT out of LIMIT-> {delta}")
 
         # positions = pd_target_clipped
-        positions = pd_target
+        positions = self._expand_motor_positions(pd_target)
         if self.enabled:
-            self.unitree.step(positions.tolist())
+            self.unitree.step(positions)
+            self._send_arm_sdk(pd_target)
 
         if hand_pose is not None:
             assert type(hand_pose) is np.ndarray, "hand_pose should be a numpy array"
@@ -180,6 +325,7 @@ class UnitreeCppEnv(Environment):
     def shutdown(self):
         # self.set_damping_mode()
         self.enabled = False
+        self._release_arm_sdk()
         self.unitree.shutdown()
 
     def set_gains(self, stiffness, damping):
@@ -187,7 +333,10 @@ class UnitreeCppEnv(Environment):
             return
         if not self.enabled:
             return
-        self.unitree.set_gains(stiffness, damping)
+        self.unitree.set_gains(
+            self._lowcmd_gain_slots(stiffness),
+            self._lowcmd_gain_slots(damping),
+        )
 
 
 if __name__ == "__main__":

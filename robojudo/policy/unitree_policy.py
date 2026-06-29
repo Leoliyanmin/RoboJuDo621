@@ -44,6 +44,18 @@ class UnitreePolicy(Policy):
                 commands[2] = command_remap(rx, self.commands_map[2])
                 break
             if key in ["KeyboardCtrl"]:
+                keys_pressed = {key_name.lower() for key_name in ctrl_data[key].get("keys_pressed", [])}
+                if keys_pressed:
+                    command_axes = [
+                        float(("w" in keys_pressed) - ("s" in keys_pressed)),
+                        float(("d" in keys_pressed) - ("a" in keys_pressed)),
+                        float(("e" in keys_pressed) - ("q" in keys_pressed)),
+                    ]
+                    for command_idx, command_axis in enumerate(command_axes):
+                        if command_axis != 0.0:
+                            commands[command_idx] = command_remap(command_axis, self.commands_map[command_idx])
+                    break
+
                 keys = ctrl_data[key]["keyboard_event"]
                 for event in keys:
                     if event["type"] == "keyboard":
@@ -62,6 +74,17 @@ class UnitreePolicy(Policy):
                             case "q":
                                 commands[2] = command_remap(-value, self.commands_map[2])
                 break
+
+        # [ih] EMA-smooth the command (cfg.cmd_smooth_alpha, 1.0 = off). Ramps step command
+        # changes — notably the key-release vx->0 snap — so the forward->stop transition does
+        # not kick the legs into a latency-driven vertical resonance. Lazy-init so it works
+        # regardless of which subclass reset() ran.
+        alpha = getattr(self.cfg_policy, "cmd_smooth_alpha", 1.0)
+        if alpha < 1.0:
+            if not hasattr(self, "_cmd_smoothed"):
+                self._cmd_smoothed = np.zeros(3)
+            self._cmd_smoothed = alpha * commands + (1.0 - alpha) * self._cmd_smoothed
+            return self._cmd_smoothed.copy()
         return commands
 
     def get_observation(self, env_data, ctrl_data):
