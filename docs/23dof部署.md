@@ -216,6 +216,52 @@ python scripts/inspect_real_gains.py -c g1_ih_velocity_23dof_real_keyboard
 python scripts/run_pipeline.py -c g1_ih_velocity_23dof_real_keyboard
 ```
 
+### 键盘控制
+
+`g1_ih_velocity_23dof_real_keyboard` 使用 `KeyboardCtrlCfg + UnitreeCtrlCfg`。键盘输入由
+`KeyboardCtrl` 读取：
+
+- 有 `DISPLAY` 时优先用 `pynput`；
+- 没有图形环境时自动退回终端 TTY 输入；
+- 通过 SSH 跑时要保证是交互 TTY（例如正常 `ssh` / `tmux`；不要用 `nohup`、后台脚本或无 TTY 的服务方式）。
+
+启动流程：
+
+1. 运行 `python scripts/run_pipeline.py -c g1_ih_velocity_23dof_real_keyboard`。
+2. 等日志出现：
+   ```text
+   prepare done — holding default pose, press R to start motion
+   ```
+3. 此时策略已经加载并参与 blend，但 pipeline 仍在 default-pose mode；按 `R` 或 `r` 后才真正切到策略运动。
+4. 开始后再用 `w/a/s/d/q/e` 给速度指令。
+
+速度键位：
+
+| 键 | 含义 | 指令量 |
+|---|---|---|
+| `w` | 前进 | `vx = +0.8 m/s` |
+| `s` | 后退 | `vx = -0.8 m/s` |
+| `a` | 左移 | `vy = +0.5 m/s` |
+| `d` | 右移 | `vy = -0.5 m/s` |
+| `q` | 左转 / 正 yaw | `wz = +1.57 rad/s` |
+| `e` | 右转 / 负 yaw | `wz = -1.57 rad/s` |
+| 松开速度键 | 停止对应方向 | 经 `cmd_smooth_alpha=0.1` 平滑回 0 |
+
+控制键：
+
+| 键 | 命令 | 用途 |
+|---|---|---|
+| `r` / `R` | `[MOTION_RESET]` | 从默认站姿进入策略运动；运动中按下也会重新开始运动模式 |
+| `o` / `O` | `[SHUTDOWN]` | 退出并关闭控制 |
+| `Esc` | `[SHUTDOWN]` | 退出并关闭控制 |
+| `Ctrl-C` | `[SHUTDOWN]` | 退出并关闭控制 |
+| `Space` | 清空 `keys_pressed` | 立即清掉当前键盘保持状态，用于终端输入卡键时归零 |
+
+终端后端没有真实 key-release 事件，代码用 `terminal_key_timeout=0.25s` 自动过期按键；
+所以在机器人内部终端控制时，**按住键靠系统自动连发维持速度，松手后约 0.25s 内归零**。
+如果看到 `KeyboardCtrl needs a TTY or DISPLAY; no keyboard events will be captured.`，说明当前进程没有可读键盘输入，
+需要换成交互终端运行。
+
 ---
 
 ## 一、遇到的问题 与 解决思路
