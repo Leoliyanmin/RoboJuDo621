@@ -1,6 +1,6 @@
 [submodule "third_party/mujoco_viewer"]
 	path = third_party/mujoco_viewer
-	url = https://github.com/rohanpsingh/mujoco-python-viewer
+	url = https://github.com/Leoliyanmin/mujoco-python-viewer.git
 	ignore = dirty
 [submodule "third_party/phc"]
 	path = third_party/phc
