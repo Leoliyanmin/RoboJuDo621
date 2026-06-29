@@ -1,25 +1,35 @@
 import logging
 import time
 
-import mujoco
 import numpy as np
-
-from robojudo.environment.utils.mujoco_viz import MujocoVisualizer
 
 from .tool_cfgs import ForwardKinematicCfg
 
 logger = logging.getLogger(__name__)
 
 
+_MUJOCO = None
+
+
+def _load_mujoco():
+    global _MUJOCO
+    if _MUJOCO is None:
+        import mujoco
+
+        _MUJOCO = mujoco
+    return _MUJOCO
+
+
 class MujocoKinematics:
     def __init__(self, cfg: ForwardKinematicCfg):
         self.cfg = cfg
-        self.model = mujoco.MjModel.from_xml_path(self.cfg.xml_path)  # pyright: ignore[reportAttributeAccessIssue]
-        self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
+        self._mujoco = _load_mujoco()
+        self.model = self._mujoco.MjModel.from_xml_path(self.cfg.xml_path)
+        self.data = self._mujoco.MjData(self.model)
         logger.debug(f"Loaded model from {self.cfg.xml_path}")
 
         # base joint type
-        self.has_free_joint = self.model.jnt_type[0] == mujoco.mjtJoint.mjJNT_FREE  # pyright: ignore[reportAttributeAccessIssue]
+        self.has_free_joint = self.model.jnt_type[0] == self._mujoco.mjtJoint.mjJNT_FREE
         self.qpos_offset = 7 if self.has_free_joint else 0
 
         # body and joint info
@@ -28,7 +38,7 @@ class MujocoKinematics:
 
         body_names = []
         for i in range(self.body_offset, self.num_bodies):
-            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, i)  # pyright: ignore[reportAttributeAccessIssue]
+            name = self._mujoco.mj_id2name(self.model, self._mujoco.mjtObj.mjOBJ_BODY, i)
             body_names.append(name)
         self.body_names = body_names
 
@@ -38,6 +48,7 @@ class MujocoKinematics:
         self.debug_viz = self.cfg.debug_viz
         if self.debug_viz:
             import mujoco_viewer
+            from robojudo.environment.utils.mujoco_viz import MujocoVisualizer
 
             self.viewer = mujoco_viewer.MujocoViewer(  # TODO: BUGGY with multiple instances
                 self.model,
@@ -61,14 +72,14 @@ class MujocoKinematics:
                 # skip root joint
                 if self.has_free_joint and i == 0:
                     continue
-                joint_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, i)  # pyright: ignore[reportAttributeAccessIssue]
+                joint_name = self._mujoco.mj_id2name(self.model, self._mujoco.mjtObj.mjOBJ_JOINT, i)
                 self.joint_names.append(joint_name)
 
         self.num_joints = len(self.joint_names)
 
         self.joint_qpos_indices = []
         for joint_name in self.joint_names:
-            joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)  # pyright: ignore[reportAttributeAccessIssue]
+            joint_id = self._mujoco.mj_name2id(self.model, self._mujoco.mjtObj.mjOBJ_JOINT, joint_name)
             if joint_id == -1:
                 raise ValueError(f"Joint {joint_name} not found in the model.")
             qpos_addr = self.model.jnt_qposadr[joint_id]
@@ -120,14 +131,14 @@ class MujocoKinematics:
             self.data.qvel[:] = qvel_full
 
         # ---------------- forward ----------------
-        mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+        self._mujoco.mj_forward(self.model, self.data)
 
         # ---------------- body info ----------------
         nbody = self.model.nbody
         offset = 1 if self.has_free_joint else 0  # TODO: check base, changes from old version
         body_info = {}
         for i in range(offset, nbody):
-            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, i)  # pyright: ignore[reportAttributeAccessIssue]
+            name = self._mujoco.mj_id2name(self.model, self._mujoco.mjtObj.mjOBJ_BODY, i)
             pos = self.data.xpos[i].copy()
             quat = self.data.xquat[i].copy()[[1, 2, 3, 0]]  # [x, y, z, w]
             lin_vel = self.data.cvel[i].copy()[3:]  # cvel = [ang, lin]

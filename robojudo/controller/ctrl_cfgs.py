@@ -14,6 +14,9 @@ class KeyboardCtrlCfg(CtrlCfg):
     combination_init_buttons: list[str] = ["Key.ctrl_l"]
     """first button in combination, need to be held down to trigger other commands;"""
 
+    terminal_key_timeout: float = 0.25
+    """terminal backend has no key-release event; expire movement keys after this many seconds."""
+
     triggers: dict[str, str] = {
         "Key.esc": "[SHUTDOWN]",
         # "Key.tab": "[POLICY_TOGGLE]",

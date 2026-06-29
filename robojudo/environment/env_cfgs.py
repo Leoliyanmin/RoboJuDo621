@@ -109,6 +109,18 @@ class UnitreeEnvCfg(RobotEnvCfg):
         control_dt: float = 0.02
         """control command dt"""
 
+        motor_cmd_num_dofs: int | None = None
+        """Number of low-level motor command slots, if different from env DoFs."""
+
+        arm_sdk_motor_idx: list[int] | None = None
+        """Motor slots controlled through the G1 rt/arm_sdk topic instead of lowcmd."""
+
+        arm_sdk_enable_idx: int = 29
+        """HG LowCmd motor_cmd slot used by Unitree to enable arm_sdk control."""
+
+        arm_sdk_topic: str = "rt/arm_sdk"
+        """DDS topic for Unitree G1 arm SDK commands."""
+
     env_type: str = "UnitreeEnv"  # For unitree_sdk2py
     # env_type: str = "UnitreeCppEnv" # For unitree_cpp
     """UnitreeEnv for unitree_sdk2py, UnitreeCppEnv for unitree_cpp, check README for more details"""

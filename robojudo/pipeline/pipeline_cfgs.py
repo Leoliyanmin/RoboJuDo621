@@ -25,6 +25,15 @@ class PipelineCfg(Config):
     We recommend enabling this, however if motion is very aggressive, you may disable it.
     """
 
+    prepare_ramp_seconds: float | None = None
+    """Override the default real-robot ramp-to-default-pose duration."""
+
+    prepare_blend_seconds: float | None = None
+    """Override the default real-robot blend-to-policy duration."""
+
+    prepare_progress_bar: bool = True
+    """Show tqdm progress bars during prepare(). Disable for smoother real-robot timing."""
+
 
 class RlPipelineCfg(PipelineCfg):
     pipeline_type: str = "RlPipeline"

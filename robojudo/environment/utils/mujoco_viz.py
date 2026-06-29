@@ -1,6 +1,17 @@
-import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation as sRot
+
+
+_MUJOCO = None
+
+
+def _load_mujoco():
+    global _MUJOCO
+    if _MUJOCO is None:
+        import mujoco
+
+        _MUJOCO = mujoco
+    return _MUJOCO
 
 
 class MujocoVisualizer:
@@ -23,7 +34,7 @@ class MujocoVisualizer:
                 pos=body_pos[j],
                 size=0.05,
                 rgba=rgba,
-                type=mujoco.mjtGeom.mjGEOM_SPHERE,  # pyright: ignore[reportAttributeAccessIssue]
+                type=_load_mujoco().mjtGeom.mjGEOM_SPHERE,
                 label="",
                 id=humanoid_id * 1000 + j,
             )
@@ -59,6 +70,6 @@ class MujocoVisualizer:
             mat=mat,
             size=np.array([0.02, 0.02, scaled_length]),
             rgba=np.array(color),
-            type=mujoco.mjtGeom.mjGEOM_ARROW,  # pyright: ignore[reportAttributeAccessIssue]
+            type=_load_mujoco().mjtGeom.mjGEOM_ARROW,
             id=3000 + id,
         )

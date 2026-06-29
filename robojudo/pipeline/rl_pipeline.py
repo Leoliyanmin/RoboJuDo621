@@ -108,6 +108,16 @@ class RlPipeline(Pipeline):
         if hasattr(inner, "set_default_pose_mode"):
             inner.set_default_pose_mode(enabled)
 
+    def _progress_bar(self, tag: str, total: int):
+        if self.cfg.prepare_progress_bar:
+            return ProgressBar(tag, total)
+        return None
+
+    @staticmethod
+    def _smoothstep(alpha: float) -> float:
+        alpha = min(max(alpha, 0.0), 1.0)
+        return alpha * alpha * (3.0 - 2.0 * alpha)
+
     def reset(self):
         logger.info("Pipeline reset")
         self.timestep = 0
@@ -308,24 +318,27 @@ class RlPipeline(Pipeline):
         # Convert seconds to steps (at policy frequency).
         # Default: 3s ramp + 5s blend.  CLI --prepare-seconds overrides both.
         if prepare_seconds is not None:
-            ramp_steps = int(prepare_seconds * self.freq)
-            blend_steps = int(prepare_seconds * self.freq)
+            ramp_seconds = prepare_seconds
+            blend_seconds = prepare_seconds
         else:
-            ramp_steps = int(3.0 * self.freq)
-            blend_steps = int(5.0 * self.freq)
+            ramp_seconds = self.cfg.prepare_ramp_seconds if self.cfg.prepare_ramp_seconds is not None else 3.0
+            blend_seconds = self.cfg.prepare_blend_seconds if self.cfg.prepare_blend_seconds is not None else 5.0
+        ramp_steps = int(ramp_seconds * self.freq)
+        blend_steps = int(blend_seconds * self.freq)
 
         # ── Phase 1: Ramp joints to default pose ──
         logger.warning(
             f"prepare: phase 1 — ramp joints ({ramp_steps} steps, "
             f"{ramp_steps / self.freq:.1f}s)"
         )
-        pbar = ProgressBar("Prepare: ramp joints", ramp_steps)
+        pbar = self._progress_bar("Prepare: ramp joints", ramp_steps)
 
+        self.env.update()
+        start_motor_angle = np.array(self.env.dof_pos, dtype=np.float32)
         last_step_time = time.time()
         for t in range(ramp_steps):
-            current_motor_angle = np.array(self.env.dof_pos)
-            alpha = min(t / max(ramp_steps - 1, 1), 1.0)
-            action = (1 - alpha) * current_motor_angle + alpha * desired_motor_angle
+            alpha = self._smoothstep(t / max(ramp_steps - 1, 1))
+            action = (1 - alpha) * start_motor_angle + alpha * desired_motor_angle
 
             self.env.step(action)
 
@@ -335,8 +348,10 @@ class RlPipeline(Pipeline):
             else:
                 logger.error("Warning: frame drop")
             last_step_time = time.time()
-            pbar.update()
-        pbar.close()
+            if pbar is not None:
+                pbar.update()
+        if pbar is not None:
+            pbar.close()
 
         # Reset policy for a clean start — frame goes back to 0.
         self.reset()
@@ -352,7 +367,7 @@ class RlPipeline(Pipeline):
             f"prepare: phase 2 — blend policy ({blend_steps} steps, "
             f"{blend_steps / self.freq:.1f}s)"
         )
-        pbar = ProgressBar("Prepare: blend policy", blend_steps)
+        pbar = self._progress_bar("Prepare: blend policy", blend_steps)
 
         last_step_time = time.time()
         for t in range(blend_steps):
@@ -378,8 +393,10 @@ class RlPipeline(Pipeline):
             else:
                 logger.error("Warning: frame drop")
             last_step_time = time.time()
-            pbar.update()
-        pbar.close()
+            if pbar is not None:
+                pbar.update()
+        if pbar is not None:
+            pbar.close()
 
         # ── Phase 3: Hold default pose — wait for R to start motion ──
         # Stay in default-pose mode. Motion starts when [MOTION_RESET] is
