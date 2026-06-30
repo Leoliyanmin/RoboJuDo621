@@ -80,6 +80,44 @@ python -c "import unitree_sdk2py; print('unitree_sdk2py OK')"
 
 如果 `pip install cyclonedds` 在 Jetson/aarch64 上找不到预编译包或编译失败，按官方 README 的方式先编译
 CycloneDDS，再安装 Python 包：
+这里的建议安装 0.10.x / 0.10.2 版本，这是一个 DSS 通信模块
+```
+conda activate robojudo
+sb_on
+
+sudo apt install -y git cmake build-essential
+
+cd ~
+git clone https://github.com/eclipse-cyclonedds/cyclonedds.git -b releases/0.10.x
+cd cyclonedds
+mkdir -p build install
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/cyclonedds/install
+cmake --build . --target install -j$(nproc)
+
+
+
+export CYCLONEDDS_HOME=$HOME/cyclonedds/install
+export CMAKE_PREFIX_PATH=$CYCLONEDDS_HOME:$CMAKE_PREFIX_PATH
+export LD_LIBRARY_PATH=$CYCLONEDDS_HOME/lib:$LD_LIBRARY_PATH
+
+
+
+cat >> ~/.bashrc <<'EOF'
+
+# CycloneDDS for Unitree SDK2 Python
+export CYCLONEDDS_HOME=$HOME/cyclonedds/install
+export CMAKE_PREFIX_PATH=$CYCLONEDDS_HOME:$CMAKE_PREFIX_PATH
+export LD_LIBRARY_PATH=$CYCLONEDDS_HOME/lib:$LD_LIBRARY_PATH
+EOF
+
+
+pip install --no-cache-dir "cyclonedds==0.10.2"
+
+cd ~/unitree_sdk2_python
+pip install -e .
+python -c "import cyclonedds; import unitree_sdk2py; print('OK')"
+```
 
 ```bash
 conda activate robojudo
