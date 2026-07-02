@@ -49,10 +49,10 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.timestep = 0
         self.last_action = np.zeros(self.num_actions, dtype=np.float32)  # 12, raw (pre-scale)
         self._height = self.height_default
-        # [ih] latched movement keys: held until release. pynput only emits press/release
-        # edges (+ patchy OS key-repeat), so we track which dir-keys are down and rebuild the
-        # velocity command from that set every step — continuous while held, stops on release.
-        self._held_keys = set()
+        # [ih] velocity command EMA state (cfg.cmd_smooth_alpha, 1.0 = off). Ramps the
+        # key-release vx->0 snap so the move->stop transient doesn't kick the legs into a
+        # latency-driven resonance (same lever as the 23dof real deploy — see 29dof部署.md).
+        self._cmd_smoothed = np.zeros(3, dtype=np.float32)
         # Clear the LSTM hidden state carried inside the exported JIT.
         for name, buf in self.model.named_buffers():
             if "hidden" in name or "cell" in name:
@@ -61,18 +61,11 @@ class AgileVelHeightRecurrentPolicy(Policy):
     def post_step_callback(self, commands=None):
         self.timestep += 1
 
-    # [ih] direction key -> (axis, normalized sign). Latched while held. Sign feeds
-    # command_remap at full scale (1.0, not 1.5) so it maps exactly to the command_map
-    # endpoint — no linear over-extrapolation past the trained command range (e.g. wz to
-    # ±1.5 rad/s, beyond the policy's 1.0 rad/s max, which made turning erratic/OOD).
-    _MOVE_KEYS = {
-        "w": (0, 1.0), "s": (0, -1.0),
-        "a": (1, -1.0), "d": (1, 1.0),
-        "e": (2, 1.0), "q": (2, -1.0),
-    }
-
     def _get_commands(self, ctrl_data) -> np.ndarray:
-        """Return [vx, vy, wz, height]. vx/vy/wz from latched keys; height persistent (r/f)."""
+        """Return [vx, vy, wz, height]. vx/vy/wz from held velocity keys / joystick axes;
+        height persistent (r/f). Reads the timeout-managed ``keys_pressed`` set so it works
+        over an SSH terminal (no key-release events) exactly like UnitreePolicy — the pynput
+        backend populates ``keys_pressed`` too, so sim behaviour is unchanged."""
         vel = np.zeros(3, dtype=np.float32)
         for key in ctrl_data.keys():
             if key in ["JoystickCtrl", "UnitreeCtrl"]:
@@ -83,26 +76,35 @@ class AgileVelHeightRecurrentPolicy(Policy):
                 vel[2] = command_remap(rx, self.commands_map[2])
                 break
             if key in ["KeyboardCtrl"]:
-                # update latched key state from this step's press/release edges
+                # height: step on r/f PRESS edges. In terminal mode there are no release
+                # events, but OS key-repeat re-emits presses while held, so holding r/f keeps
+                # stepping and a single tap steps once — controllable in both backends.
                 for event in ctrl_data[key]["keyboard_event"]:
-                    if event["type"] != "keyboard":
+                    if event["type"] != "keyboard" or not event["pressed"]:
                         continue
-                    name = event["name"]
-                    if name in self._MOVE_KEYS:
-                        if event["pressed"]:
-                            self._held_keys.add(name)
-                        else:
-                            self._held_keys.discard(name)
-                    elif event["pressed"] and name == "r":  # stand taller
+                    if event["name"] == "r":  # stand taller
                         self._height = min(self.height_max, self._height + self.height_step)
-                    elif event["pressed"] and name == "f":  # squat lower
+                    elif event["name"] == "f":  # squat lower
                         self._height = max(self.height_min, self._height - self.height_step)
-                # rebuild the velocity command from whatever is currently held
-                for name in self._held_keys:
-                    axis, sign = self._MOVE_KEYS[name]
-                    vel[axis] = command_remap(sign, self.commands_map[axis])
+                # velocity: read the timeout-managed keys_pressed set (SSH-terminal safe).
+                keys_pressed = {name.lower() for name in ctrl_data[key].get("keys_pressed", [])}
+                axis_sign = [
+                    float(("w" in keys_pressed) - ("s" in keys_pressed)),  # vx
+                    float(("d" in keys_pressed) - ("a" in keys_pressed)),  # vy
+                    float(("e" in keys_pressed) - ("q" in keys_pressed)),  # wz
+                ]
+                for i, sign in enumerate(axis_sign):
+                    if sign != 0.0:
+                        # full scale (1.0, not 1.5): map exactly to the command_map endpoint,
+                        # no linear over-extrapolation past the trained command range.
+                        vel[i] = command_remap(sign, self.commands_map[i])
                 break
         vel = vel * self.max_cmd  # scale normalized vel-cmd to m/s, rad/s
+        # [ih] EMA-smooth the velocity command (height is already a slow r/f ramp, left raw).
+        alpha = getattr(self.cfg_policy, "cmd_smooth_alpha", 1.0)
+        if alpha < 1.0:
+            self._cmd_smoothed = alpha * vel + (1.0 - alpha) * self._cmd_smoothed
+            vel = self._cmd_smoothed.copy()
         return np.array([vel[0], vel[1], vel[2], self._height], dtype=np.float32)
 
     def get_observation(self, env_data, ctrl_data):
