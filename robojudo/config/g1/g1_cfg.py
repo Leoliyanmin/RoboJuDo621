@@ -395,20 +395,133 @@ class g1_agile_velheight(RlPipelineCfg):
 
 @cfg_registry.register
 class g1_agile_velheight_real(g1_agile_velheight):
-    """[ih] AGILE velocity-height recurrent student on real G1 hardware."""
+    """[ih] AGILE velocity-height frozen-hands recurrent student on the REAL 29-DoF G1.
+
+    Deploys assets/models/g1/agile/velheight_frozenhands_wrist20_recurrent.pt. See
+    docs/29dof部署.md. 12 legs are actuated by the policy on the AGILE trained gains
+    (knee kp 99 / kd 6.3, hip 40/99, ankle 28.5 — inspect with
+    scripts/inspect_real_gains.py -c g1_ih_velheight_29dof_real_keyboard). The other 17
+    body joints (waist yaw/roll/pitch + arms + wrists) are HELD at the G1_29DoF env
+    default pose (all zeros) via the SAME rt/lowcmd as the legs — arm_sdk is unused here
+    (arm_sdk_motor_idx=None; run_pipeline's MotionSwitcher releases the high-level service
+    that subscribes to rt/arm_sdk), with the env gains kp 200 waist / 40 arm / 20 wrist,
+    kd 6/2/2. Holding arms at 0 matches the policy obs default (joint_pos_rel ~= 0), i.e.
+    the frozen-hands training pose. The 24 dexterous-hand joints are zero-padded in obs.
+    """
+
+    # [ih] slow, quiet ramp to the default standing pose before motion (safety on real);
+    # 6 s matches the 23-DoF deploy. No tqdm bar (keeps the terminal clean for keyboard TTY).
+    prepare_ramp_seconds: float = 6.0
+    prepare_progress_bar: bool = False
 
     env: G1RealEnvCfg = G1RealEnvCfg(
         env_type="UnitreeCppEnv",
+        # odometry left at the G1RealEnvCfg default ("UNITREE") — see the 23-DoF deploy note:
+        # turning it off broke the C++ DDS sport_state setup. Legs walk C++ DDS on rt/lowcmd.
         unitree=G1UnitreeCfg(
-            net_if="enP8p1s0",
+            net_if="enP8p1s0",  # G1 NX port carrying 192.168.123.x — verify with `ip addr`.
+            # Arms via rt/lowcmd (NOT arm_sdk). None also makes _init_arm_sdk a no-op, so no
+            # Python/C++ cyclonedds conflict. Edit G1_29DoF.default_pos to change the held pose.
+            arm_sdk_motor_idx=None,
         ),
         forward_kinematic=None,
         update_with_fk=False,
+    )
+    # [ih] START at the AGILE trained leg gains (unchanged from sim). If the real robot shows
+    # the 23-DoF-style fore-aft sagittal sway (worst at move->stop), apply the SAME levers:
+    # raise firmware PD kd on the sagittal movers (knee/hip_pitch/ankle) and, if needed, lower
+    # knee kp for phase margin — override action_dof=G1AgileVHLegsDoF(stiffness=..., damping=...).
+    # cmd_smooth_alpha=0.1 (~0.2 s EMA) softens the key-release vx->0 snap that triggers it.
+    policy: G1AgileVelHeightPolicyCfg = G1AgileVelHeightPolicyCfg(
+        cmd_smooth_alpha=0.1,
     )
     ctrl: list[UnitreeCtrlCfg] = [
         UnitreeCtrlCfg(),
     ]
     do_safety_check: bool = True
+
+
+@cfg_registry.register
+class g1_agile_velheight_real_keyboard(g1_agile_velheight_real):
+    """Keyboard teleop for the real 29-DoF velheight policy (unitree_cpp).
+
+    Velocity/height keys are read by the policy, NOT bound as triggers (a triggered key is
+    consumed and never reaches the policy): w/s = fwd/back (vx), a/d = strafe (vy),
+    q/e = turn (wz), r = stand taller, f = squat lower. '|' (shift-\) re-starts motion
+    ([MOTION_RESET]); o/O/Esc/Ctrl-C shut down. Run over an interactive TTY (ssh/tmux, not
+    nohup): held keys auto-expire after terminal_key_timeout (~0.25 s) with no DISPLAY.
+    """
+
+    ctrl: list[KeyboardCtrlCfg | UnitreeCtrlCfg] = [
+        KeyboardCtrlCfg(
+            triggers={
+                "|": "[MOTION_RESET]",  # shift-backslash; r/f are taken by the height command
+                "o": "[SHUTDOWN]",
+                "O": "[SHUTDOWN]",
+                "Key.esc": "[SHUTDOWN]",
+                "Key.ctrl_c": "[SHUTDOWN]",
+            },
+        ),
+        UnitreeCtrlCfg(),
+    ]
+
+
+@cfg_registry.register
+class g1_agile_velheight_real_py(g1_agile_velheight_real):
+    """unitree_sdk2py (UnitreeEnv) fallback for the real 29-DoF velheight policy.
+
+    Arms still go via rt/lowcmd (arm_sdk_motor_idx=None); all 29 motors are driven by the
+    Python SDK. Prefer the unitree_cpp path (g1_agile_velheight_real) unless the C++ SDK
+    binding is unavailable.
+    """
+
+    env: G1RealEnvCfg = G1RealEnvCfg(
+        env_type="UnitreeEnv",
+        unitree=G1UnitreeCfg(
+            net_if="enP8p1s0",
+            arm_sdk_motor_idx=None,
+        ),
+        forward_kinematic=None,
+        update_with_fk=False,
+    )
+
+
+@cfg_registry.register
+class g1_agile_velheight_real_py_keyboard(g1_agile_velheight_real_py):
+    """Keyboard teleop variant using unitree_sdk2py instead of unitree_cpp."""
+
+    ctrl: list[KeyboardCtrlCfg | UnitreeCtrlCfg] = [
+        KeyboardCtrlCfg(
+            triggers={
+                "|": "[MOTION_RESET]",
+                "o": "[SHUTDOWN]",
+                "O": "[SHUTDOWN]",
+                "Key.esc": "[SHUTDOWN]",
+                "Key.ctrl_c": "[SHUTDOWN]",
+            },
+        ),
+        UnitreeCtrlCfg(),
+    ]
+
+
+@cfg_registry.register
+class g1_ih_velheight_29dof_real(g1_agile_velheight_real):
+    """Alias for deploying the IH velheight recurrent policy on the 29-DoF G1 (unitree_cpp)."""
+
+
+@cfg_registry.register
+class g1_ih_velheight_29dof_real_keyboard(g1_agile_velheight_real_keyboard):
+    """Alias for keyboard deployment of the IH velheight 29-DoF policy (unitree_cpp)."""
+
+
+@cfg_registry.register
+class g1_ih_velheight_29dof_real_py(g1_agile_velheight_real_py):
+    """Alias for deploying the IH velheight 29-DoF policy through unitree_sdk2py."""
+
+
+@cfg_registry.register
+class g1_ih_velheight_29dof_real_py_keyboard(g1_agile_velheight_real_py_keyboard):
+    """Alias for keyboard deployment of the IH velheight 29-DoF policy through unitree_sdk2py."""
 
 
 @cfg_registry.register
