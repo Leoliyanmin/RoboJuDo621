@@ -4,18 +4,18 @@
 # student. Unlike the velocity-history policy (MLP, config-only), this one is RECURRENT and
 # has a different obs layout, so it needs its own policy class.
 #
-# Obs (128, NO history) in this exact order (from the exported IO descriptor):
+# Obs in this exact order (from the exported IO descriptor):
 #   generated_commands : 4   [vx, vy, wz, height]            (scale 1)
 #   base_ang_vel       : 3                                   (scale 1)
 #   projected_gravity  : 3                                   (scale 1)
-#   joint_pos_rel      : 53   = 29 body (q-q0) + 24 hand     (scale 1)
-#   joint_vel_rel      : 53   = 29 body (q̇)   + 24 hand     (scale 0.1)
+#   joint_pos_rel      : 29 body (q-q0) + optional hand zeros (scale 1)
+#   joint_vel_rel      : 29 body (qdot) + optional hand zeros (scale 0.1)
 #   last_action        : 12   (raw policy output, pre-scale)
-# The 24 DFQ hand joints are FROZEN in training -> their pos_rel/vel are always 0, so we
-# pad zeros (no dexterous-hand robot model required; works on the plain 29-DOF mjcf).
+# The wrist20/frozen-hands policy uses 24 DFQ hand zero slots (128 obs total). The stock
+# 29-DoF unitree recurrent student uses no hand slots (80 obs total).
 #
 # Action: 12 leg joints, PER-JOINT scale, + leg default offset. JIT carries LSTM hidden
-# state internally (buffers hidden_state/cell_state) — call with a 1D (128,) tensor; reset
+# state internally (buffers hidden_state/cell_state) — call with a 1D obs tensor; reset
 # by zeroing those buffers.
 
 import numpy as np
@@ -25,7 +25,7 @@ from robojudo.policy import Policy, policy_registry
 from robojudo.policy.policy_cfgs import PolicyCfg
 from robojudo.utils.util_func import command_remap, get_gravity_orientation
 
-N_HAND = 24  # frozen DFQ hand joints (obs slots 29..52), always 0
+DEFAULT_FROZEN_HAND_OBS = 24  # frozen DFQ hand joints (obs slots 29..52), always 0
 
 
 @policy_registry.register
@@ -38,6 +38,7 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.max_cmd = np.asarray(self.cfg_policy.max_cmd, dtype=np.float32)  # [vx, vy, wz]
         self.commands_map = self.cfg_policy.commands_map
         self.per_joint_scale = np.asarray(self.cfg_policy.action_scales, dtype=np.float32)  # (12,)
+        self.num_frozen_hand_obs = int(getattr(self.cfg_policy, "num_frozen_hand_obs", DEFAULT_FROZEN_HAND_OBS))
         # height command state (persistent; r/f keys adjust it)
         self.height_default = float(self.cfg_policy.height_default)
         self.height_min = float(self.cfg_policy.height_min)
@@ -113,20 +114,20 @@ class AgileVelHeightRecurrentPolicy(Policy):
         # env_data.dof_pos / dof_vel are already sliced to the 29 body joints (obs_dof order)
         body_pos_rel = (env_data.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos  # (29,)
         body_vel_rel = env_data.dof_vel * self.obs_scales.dof_vel  # (29,)
-        hand_zeros = np.zeros(N_HAND, dtype=np.float32)  # 24 frozen hand joints
+        hand_zeros = np.zeros(self.num_frozen_hand_obs, dtype=np.float32)
 
         obs = np.concatenate([
             commands,                                    # 4
             env_data.base_ang_vel * self.obs_scales.ang_vel,  # 3
             gravity,                                     # 3
-            body_pos_rel, hand_zeros,                    # 53
-            body_vel_rel, hand_zeros,                    # 53
+            body_pos_rel, hand_zeros,                    # 29 + optional frozen hand obs
+            body_vel_rel, hand_zeros,                    # 29 + optional frozen hand obs
             self.last_action,                            # 12
         ]).astype(np.float32)
         return obs, {"commands": commands}
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
-        # Recurrent JIT: 1D (128,) in -> (12,) out; hidden state carried internally.
+        # Recurrent JIT: 1D obs in -> (12,) out; hidden state carried internally.
         x = torch.from_numpy(obs).float().to(self.device)
         with torch.no_grad():
             raw = self.model(x).cpu().numpy().reshape(-1)  # (12,) raw network output
@@ -163,15 +164,15 @@ class AgileVelHeightTeacherPolicy(AgileVelHeightRecurrentPolicy):
             base_lin_vel = np.zeros(3, dtype=np.float32)
         body_pos_rel = (env_data.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos  # (29,)
         body_vel_rel = env_data.dof_vel * self.obs_scales.dof_vel  # (29,)
-        hand_zeros = np.zeros(N_HAND, dtype=np.float32)
+        hand_zeros = np.zeros(self.num_frozen_hand_obs, dtype=np.float32)
 
         obs = np.concatenate([
             commands,                                          # 4
             np.asarray(base_lin_vel, dtype=np.float32) * lin_scale,  # 3  [privileged, teacher-only]
             env_data.base_ang_vel * self.obs_scales.ang_vel,   # 3
             gravity,                                           # 3
-            body_pos_rel, hand_zeros,                          # 53
-            body_vel_rel, hand_zeros,                          # 53
+            body_pos_rel, hand_zeros,                          # 29 + optional frozen hand obs
+            body_vel_rel, hand_zeros,                          # 29 + optional frozen hand obs
             self.last_action,                                  # 12
         ]).astype(np.float32)
         return obs, {"commands": commands}

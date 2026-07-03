@@ -27,7 +27,10 @@ from .policy.g1_agile_velocity_23dof_cfg import (  # noqa: F401  [ih]
     G1AgileVelocity23DoF,
     G1AgileVelocity23DOFPolicyCfg,
 )
-from .policy.g1_agile_velheight_cfg import G1AgileVelHeightPolicyCfg  # noqa: F401  [ih]
+from .policy.g1_agile_velheight_cfg import (  # noqa: F401  [ih]
+    G1AgileVelHeight29DOFPolicyCfg,
+    G1AgileVelHeightPolicyCfg,
+)
 from .policy.g1_agile_velheight_cfg import G1AgileVelHeightTeacherPolicyCfg  # noqa: F401  [ih]
 from .policy.g1_amo_policy_cfg import G1AmoPolicyCfg  # noqa: F401
 from .policy.g1_asap_policy_cfg import G1AsapLocoPolicyCfg, G1AsapPolicyCfg  # noqa: F401
@@ -391,6 +394,23 @@ class g1_agile_velheight(RlPipelineCfg):
         KeyboardCtrlCfg(),
     ]
     policy: G1AgileVelHeightPolicyCfg = G1AgileVelHeightPolicyCfg()
+
+
+@cfg_registry.register
+class g1_agile_velheight_29dof(RlPipelineCfg):
+    """AGILE velocity-height recurrent student on the stock 29-DoF G1 MJCF."""
+
+    robot: str = "g1"
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(
+        sim_dt=0.005,
+        sim_decimation=4,
+        xml=(ASSETS_DIR / "robots/g1/g1_29dof_rev_1_0.xml").as_posix(),
+        waist_manual_keyboard=True,
+    )
+    ctrl: list[KeyboardCtrlCfg] = [
+        KeyboardCtrlCfg(),
+    ]
+    policy: G1AgileVelHeight29DOFPolicyCfg = G1AgileVelHeight29DOFPolicyCfg()
 
 
 @cfg_registry.register

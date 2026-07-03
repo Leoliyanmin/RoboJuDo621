@@ -86,6 +86,7 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
         0.5475, 0.5475, 0.3507, 0.3507, 0.5475, 0.5475, 0.3507, 0.3507, 0.4386, 0.4386, 0.4386, 0.4386,
     ]
     obs_scales: G1AgileVHObsScales = G1AgileVHObsScales()
+    num_frozen_hand_obs: int = 24
 
     # velocity command remap (vx, vy, wz). height is a separate persistent command.
     max_cmd: list[float] = [0.8, 0.5, 1.0]
@@ -98,6 +99,17 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     height_min: float = 0.40
     height_max: float = 0.72
     height_step: float = 0.01
+
+
+class G1AgileVelHeight29DOFPolicyCfg(G1AgileVelHeightPolicyCfg):
+    """Velocity-height recurrent student exported under assets/models/g1/unitree."""
+
+    policy_name: str = "unitree_g1_velocity_height_recurrent_student"
+    num_frozen_hand_obs: int = 0
+
+    @property
+    def policy_file(self) -> str:
+        return (ASSETS_DIR / f"models/{self.robot}/unitree/{self.policy_name}.pt").as_posix()
 
 
 # [ih] TEACHER variant (privileged, non-recurrent) for the RoboJuDo teacher-in-MuJoCo check.
