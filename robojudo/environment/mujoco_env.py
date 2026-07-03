@@ -127,6 +127,7 @@ class MujocoEnv(Environment):
         self._arm_spread_max = float(getattr(cfg_env, "arm_spread_max", 2.2))
         self._arm_phase = 0.0
         self._arm_stride_signal = 0.0
+        self._arm_stride_rest = np.zeros(2, dtype=np.float64)
         self._arm_stride_body_ids: tuple[int, int, int] | None = None
         self._arm_dofs: dict[str, int] = {}
         self._arm_cur: dict[str, float] = {}
@@ -137,6 +138,7 @@ class MujocoEnv(Environment):
                 stride_body_ids.append(mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name))
             if all(body_id >= 0 for body_id in stride_body_ids):
                 self._arm_stride_body_ids = tuple(stride_body_ids)
+                self._arm_stride_rest = np.asarray(self._get_arm_stride_components(), dtype=np.float64)
             else:
                 logger.warning("[ih] arm swing using timer fallback; missing stride body ids")
             for joint_name in G1_ARM_HANG_POSE:
@@ -353,21 +355,35 @@ class MujocoEnv(Environment):
         alpha = float(np.clip(alpha, 0.0, 1.0))
         return alpha * alpha * (3.0 - 2.0 * alpha)
 
-    def _get_arm_stride_signal(self, speed_alpha: float) -> float:
-        """Return signed gait phase from feet: + means left foot forward, right arm forward."""
-        if self._arm_stride_body_ids is None:
-            self._arm_phase += 2.0 * np.pi * self._arm_swing_hz * self.control_dt
-            return speed_alpha * float(np.sin(self._arm_phase))
-
+    def _get_arm_stride_components(self) -> tuple[float, float]:
+        """Return left-minus-right foot delta in torso forward/lateral coordinates."""
         torso_id, left_foot_id, right_foot_id = self._arm_stride_body_ids
+        torso_mat = self.data.xmat[torso_id].reshape(3, 3)
+        foot_delta = self.data.xpos[left_foot_id] - self.data.xpos[right_foot_id]
+        return float(np.dot(foot_delta, torso_mat[:, 0])), float(np.dot(foot_delta, torso_mat[:, 1]))
+
+    def _get_arm_stride_signal(self, speed_alpha: float, vel: np.ndarray) -> float:
+        """Return signed gait phase from feet: + means left leg leads, right arm forward."""
+        self._arm_phase += 2.0 * np.pi * self._arm_swing_hz * self.control_dt
+        timer_raw = float(np.sin(self._arm_phase))
+        if self._arm_stride_body_ids is None:
+            return speed_alpha * timer_raw
+
         if speed_alpha < 0.05:
             raw_stride = 0.0
         else:
-            torso_mat = self.data.xmat[torso_id].reshape(3, 3)
-            torso_forward = torso_mat[:, 0]
-            foot_delta = self.data.xpos[left_foot_id] - self.data.xpos[right_foot_id]
-            raw_stride = float(np.dot(foot_delta, torso_forward) / max(self._arm_stride_ref, 1e-6))
+            stride_now = np.asarray(self._get_arm_stride_components(), dtype=np.float64)
+            stride_delta = stride_now - self._arm_stride_rest
+            move_norm = float(np.linalg.norm(vel[:2]))
+            if move_norm > 1e-6:
+                move_dir = np.asarray(vel[:2], dtype=np.float64) / move_norm
+                stride_delta_cmd = float(np.dot(stride_delta, move_dir))
+            else:
+                stride_delta_cmd = float(stride_delta[0])
+            raw_stride = float(stride_delta_cmd / max(self._arm_stride_ref, 1e-6))
             raw_stride = float(np.clip(raw_stride, -1.0, 1.0))
+            if abs(raw_stride) < 0.08 and abs(float(vel[1])) > abs(float(vel[0])) * 0.75:
+                raw_stride = timer_raw
 
         alpha = float(np.clip(self._arm_stride_filter_alpha, 0.0, 1.0))
         self._arm_stride_signal += alpha * (raw_stride - self._arm_stride_signal)
@@ -390,7 +406,7 @@ class MujocoEnv(Environment):
         speed = float(np.linalg.norm(vel[:2]) + 0.25 * abs(float(vel[2])))
         speed_alpha = float(np.clip(speed / max(self._arm_swing_speed_ref, 1e-6), 0.0, 1.0))
         walk_alpha = 1.0 - squat_alpha
-        stride_signal = self._get_arm_stride_signal(speed_alpha)
+        stride_signal = self._get_arm_stride_signal(speed_alpha, vel)
         swing_signal = self._arm_swing_scale * walk_alpha * stride_signal
         swing = self._arm_swing_amp * swing_signal
 
