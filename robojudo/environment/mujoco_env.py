@@ -12,6 +12,45 @@ from robojudo.utils.util_func import quat_rotate_inverse_np, quatToEuler
 
 logger = logging.getLogger(__name__)
 
+G1_ARM_HANG_POSE: dict[str, float] = {
+    "left_shoulder_pitch_joint": 0.15,
+    "left_shoulder_roll_joint": 0.02,
+    "left_shoulder_yaw_joint": 0.0,
+    "left_elbow_joint": 1.05,
+    "left_wrist_roll_joint": 0.0,
+    "left_wrist_pitch_joint": 0.0,
+    "left_wrist_yaw_joint": 0.0,
+    "right_shoulder_pitch_joint": 0.15,
+    "right_shoulder_roll_joint": -0.02,
+    "right_shoulder_yaw_joint": 0.0,
+    "right_elbow_joint": 1.05,
+    "right_wrist_roll_joint": 0.0,
+    "right_wrist_pitch_joint": 0.0,
+    "right_wrist_yaw_joint": 0.0,
+}
+
+G1_ARM_BOX_POSE: dict[str, float] = {
+    "left_shoulder_pitch_joint": -0.75,
+    "left_shoulder_roll_joint": 0.12,
+    "left_shoulder_yaw_joint": 0.0,
+    "left_elbow_joint": 1.10,
+    "left_wrist_roll_joint": 0.0,
+    "left_wrist_pitch_joint": 0.0,
+    "left_wrist_yaw_joint": 0.0,
+    "right_shoulder_pitch_joint": -0.75,
+    "right_shoulder_roll_joint": -0.12,
+    "right_shoulder_yaw_joint": 0.0,
+    "right_elbow_joint": 1.10,
+    "right_wrist_roll_joint": 0.0,
+    "right_wrist_pitch_joint": 0.0,
+    "right_wrist_yaw_joint": 0.0,
+}
+
+G1_ARM_SPREAD_JOINTS = {
+    "left_shoulder_roll_joint",
+    "right_shoulder_roll_joint",
+}
+
 
 @env_registry.register
 class MujocoEnv(Environment):
@@ -56,17 +95,79 @@ class MujocoEnv(Environment):
             jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "waist_pitch_joint")
             if jid >= 0:
                 self._waist_dof = int(self.model.jnt_qposadr[jid] - 7)  # index into pd_target (free joint=0..6)
-                self._waist_lo, self._waist_hi = float(self.model.jnt_range[jid][0]), float(self.model.jnt_range[jid][1])
+                self._waist_lo = float(self.model.jnt_range[jid][0])
+                self._waist_hi = float(self.model.jnt_range[jid][1])
+
+        self._arm_motion_mode = getattr(cfg_env, "arm_motion_mode", "off")
+        self._arm_squat_height = float(getattr(cfg_env, "arm_squat_height", 0.52))
+        self._arm_stand_height = float(getattr(cfg_env, "arm_stand_height", 0.66))
+        self._arm_swing_amp = float(getattr(cfg_env, "arm_swing_amp", 0.10))
+        self._arm_swing_hz = float(getattr(cfg_env, "arm_swing_hz", 1.15))
+        self._arm_swing_speed_ref = float(getattr(cfg_env, "arm_swing_speed_ref", 0.45))
+        self._arm_stride_ref = float(getattr(cfg_env, "arm_stride_ref", 0.28))
+        self._arm_stride_filter_alpha = float(getattr(cfg_env, "arm_stride_filter_alpha", 0.35))
+        self._arm_elbow_swing_amp = float(getattr(cfg_env, "arm_elbow_swing_amp", 0.12))
+        self._arm_wrist_swing_amp = float(getattr(cfg_env, "arm_wrist_swing_amp", 0.08))
+        self._arm_walk_spread_amp = float(getattr(cfg_env, "arm_walk_spread_amp", 0.10))
+        self._arm_motion_rate = float(np.radians(getattr(cfg_env, "arm_motion_rate_dps", 180.0)))
+        self._arm_swing_kb = bool(getattr(cfg_env, "arm_swing_keyboard", False))
+        self._arm_swing_scale = float(getattr(cfg_env, "arm_swing_scale", 1.0))
+        self._arm_swing_step = float(getattr(cfg_env, "arm_swing_step", 0.1))
+        self._arm_swing_min = float(getattr(cfg_env, "arm_swing_min", 0.0))
+        self._arm_swing_max = float(getattr(cfg_env, "arm_swing_max", 2.0))
+        self._arm_reach_kb = bool(getattr(cfg_env, "arm_reach_keyboard", False))
+        self._arm_reach_scale = float(getattr(cfg_env, "arm_reach_scale", 1.0))
+        self._arm_reach_step = float(getattr(cfg_env, "arm_reach_step", 0.1))
+        self._arm_reach_min = float(getattr(cfg_env, "arm_reach_min", 0.5))
+        self._arm_reach_max = float(getattr(cfg_env, "arm_reach_max", 1.6))
+        self._arm_spread_kb = bool(getattr(cfg_env, "arm_spread_keyboard", False))
+        self._arm_spread_scale = float(getattr(cfg_env, "arm_spread_scale", 1.0))
+        self._arm_spread_step = float(getattr(cfg_env, "arm_spread_step", 0.1))
+        self._arm_spread_min = float(getattr(cfg_env, "arm_spread_min", 0.5))
+        self._arm_spread_max = float(getattr(cfg_env, "arm_spread_max", 2.2))
+        self._arm_phase = 0.0
+        self._arm_stride_signal = 0.0
+        self._arm_stride_body_ids: tuple[int, int, int] | None = None
+        self._arm_dofs: dict[str, int] = {}
+        self._arm_cur: dict[str, float] = {}
+        self._arm_motion_label = "off"
+        if self._arm_motion_mode != "off":
+            stride_body_ids = []
+            for body_name in ("torso_link", "left_ankle_roll_link", "right_ankle_roll_link"):
+                stride_body_ids.append(mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name))
+            if all(body_id >= 0 for body_id in stride_body_ids):
+                self._arm_stride_body_ids = tuple(stride_body_ids)
+            else:
+                logger.warning("[ih] arm swing using timer fallback; missing stride body ids")
+            for joint_name in G1_ARM_HANG_POSE:
+                jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+                if jid < 0:
+                    continue
+                dof_idx = int(self.model.jnt_qposadr[jid] - 7)
+                if 0 <= dof_idx < self.num_dofs:
+                    self._arm_dofs[joint_name] = dof_idx
+                    self._arm_cur[joint_name] = float(self.data.qpos[self.model.jnt_qposadr[jid]])
+            missing = sorted(set(G1_ARM_HANG_POSE) - set(self._arm_dofs))
+            if missing:
+                logger.warning(f"[ih] arm motion disabled; missing joints: {missing}")
+                self._arm_motion_mode = "off"
         # resolve bodies if there is (or could be, via keyboard) a load to apply
         if self._wrist_load_n > 0.0 or self._wrist_load_kb:
             for bn in getattr(cfg_env, "wrist_load_bodies", []):
                 bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, bn)
                 if bid >= 0:
                     self._wrist_load_body_ids.append(bid)
-        # optional keyboard listener for '[' / ']' load + ',' / '.' waist (own pynput thread;
-        # coexists with the controller's KeyboardCtrl listener — pynput allows multiple).
+        # optional keyboard listener for '[' / ']' load, ',' / '.' waist,
+        # j/k arm swing, z/x arm reach, c/v arm spread
+        # (own pynput thread; coexists with KeyboardCtrl — pynput allows multiple).
         self._kb_queue = None
-        if self._wrist_load_kb or self._waist_manual:
+        if (
+            self._wrist_load_kb
+            or self._waist_manual
+            or self._arm_swing_kb
+            or self._arm_reach_kb
+            or self._arm_spread_kb
+        ):
             try:
                 from queue import Queue
 
@@ -228,6 +329,108 @@ class MujocoEnv(Environment):
             elif self._waist_manual and name == ",":  # lean back (-)
                 self._waist_manual_val = max(self._waist_lo, self._waist_manual_val - self._waist_manual_step)
                 logger.info(f"[ih] waist_pitch -> {np.degrees(self._waist_manual_val):.0f} deg")
+            elif self._arm_swing_kb and name == "k":
+                self._arm_swing_scale = min(self._arm_swing_max, self._arm_swing_scale + self._arm_swing_step)
+                logger.info(f"[ih] arm swing -> {self._arm_swing_scale:.2f}")
+            elif self._arm_swing_kb and name == "j":
+                self._arm_swing_scale = max(self._arm_swing_min, self._arm_swing_scale - self._arm_swing_step)
+                logger.info(f"[ih] arm swing -> {self._arm_swing_scale:.2f}")
+            elif self._arm_reach_kb and name == "x":
+                self._arm_reach_scale = min(self._arm_reach_max, self._arm_reach_scale + self._arm_reach_step)
+                logger.info(f"[ih] arm reach -> {self._arm_reach_scale:.2f}")
+            elif self._arm_reach_kb and name == "z":
+                self._arm_reach_scale = max(self._arm_reach_min, self._arm_reach_scale - self._arm_reach_step)
+                logger.info(f"[ih] arm reach -> {self._arm_reach_scale:.2f}")
+            elif self._arm_spread_kb and name == "v":
+                self._arm_spread_scale = min(self._arm_spread_max, self._arm_spread_scale + self._arm_spread_step)
+                logger.info(f"[ih] arm spread -> {self._arm_spread_scale:.2f}")
+            elif self._arm_spread_kb and name == "c":
+                self._arm_spread_scale = max(self._arm_spread_min, self._arm_spread_scale - self._arm_spread_step)
+                logger.info(f"[ih] arm spread -> {self._arm_spread_scale:.2f}")
+
+    @staticmethod
+    def _smoothstep(alpha: float) -> float:
+        alpha = float(np.clip(alpha, 0.0, 1.0))
+        return alpha * alpha * (3.0 - 2.0 * alpha)
+
+    def _get_arm_stride_signal(self, speed_alpha: float) -> float:
+        """Return signed gait phase from feet: + means left foot forward, right arm forward."""
+        if self._arm_stride_body_ids is None:
+            self._arm_phase += 2.0 * np.pi * self._arm_swing_hz * self.control_dt
+            return speed_alpha * float(np.sin(self._arm_phase))
+
+        torso_id, left_foot_id, right_foot_id = self._arm_stride_body_ids
+        if speed_alpha < 0.05:
+            raw_stride = 0.0
+        else:
+            torso_mat = self.data.xmat[torso_id].reshape(3, 3)
+            torso_forward = torso_mat[:, 0]
+            foot_delta = self.data.xpos[left_foot_id] - self.data.xpos[right_foot_id]
+            raw_stride = float(np.dot(foot_delta, torso_forward) / max(self._arm_stride_ref, 1e-6))
+            raw_stride = float(np.clip(raw_stride, -1.0, 1.0))
+
+        alpha = float(np.clip(self._arm_stride_filter_alpha, 0.0, 1.0))
+        self._arm_stride_signal += alpha * (raw_stride - self._arm_stride_signal)
+        return self._arm_stride_signal * speed_alpha
+
+    def _apply_arm_motion(self, pd_target):
+        if self._arm_motion_mode == "off":
+            return pd_target
+
+        vel = np.zeros(3, dtype=np.float32)
+        height_cmd = None
+        if self._cmd_readout is not None:
+            vel, height_cmd = self._cmd_readout
+
+        squat_alpha = 0.0
+        if height_cmd is not None:
+            denom = max(self._arm_stand_height - self._arm_squat_height, 1e-6)
+            squat_alpha = self._smoothstep((self._arm_stand_height - height_cmd) / denom)
+
+        speed = float(np.linalg.norm(vel[:2]) + 0.25 * abs(float(vel[2])))
+        speed_alpha = float(np.clip(speed / max(self._arm_swing_speed_ref, 1e-6), 0.0, 1.0))
+        walk_alpha = 1.0 - squat_alpha
+        stride_signal = self._get_arm_stride_signal(speed_alpha)
+        swing_signal = self._arm_swing_scale * walk_alpha * stride_signal
+        swing = self._arm_swing_amp * swing_signal
+
+        target_pose = dict(G1_ARM_HANG_POSE)
+        walk_spread = self._arm_walk_spread_amp * (self._arm_spread_scale - 1.0) * walk_alpha
+        target_pose["left_shoulder_roll_joint"] += walk_spread
+        target_pose["right_shoulder_roll_joint"] -= walk_spread
+        target_pose["left_shoulder_pitch_joint"] += swing
+        target_pose["right_shoulder_pitch_joint"] -= swing
+        left_forward = max(-swing_signal, 0.0)
+        right_forward = max(swing_signal, 0.0)
+        target_pose["left_elbow_joint"] += self._arm_elbow_swing_amp * left_forward
+        target_pose["right_elbow_joint"] += self._arm_elbow_swing_amp * right_forward
+        target_pose["left_wrist_pitch_joint"] -= self._arm_wrist_swing_amp * left_forward
+        target_pose["right_wrist_pitch_joint"] -= self._arm_wrist_swing_amp * right_forward
+        for joint_name, box_value in G1_ARM_BOX_POSE.items():
+            box_delta = box_value - G1_ARM_HANG_POSE[joint_name]
+            if joint_name in G1_ARM_SPREAD_JOINTS:
+                box_delta *= self._arm_spread_scale
+            box_value = G1_ARM_HANG_POSE[joint_name] + self._arm_reach_scale * box_delta
+            target_pose[joint_name] = (1.0 - squat_alpha) * target_pose[joint_name] + squat_alpha * box_value
+
+        pd_target = np.array(pd_target, dtype=np.float64)
+        max_delta = self._arm_motion_rate * self.control_dt
+        for joint_name, target in target_pose.items():
+            dof_idx = self._arm_dofs[joint_name]
+            lo, hi = self.position_limits[dof_idx]
+            target = float(np.clip(target, lo, hi))
+            cur = self._arm_cur[joint_name]
+            cur += float(np.clip(target - cur, -max_delta, max_delta))
+            self._arm_cur[joint_name] = cur
+            pd_target[dof_idx] = cur
+
+        if squat_alpha > 0.65:
+            self._arm_motion_label = "box reach"
+        elif speed_alpha > 0.05:
+            self._arm_motion_label = "walk stride"
+        else:
+            self._arm_motion_label = "hang"
+        return pd_target
 
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"
@@ -237,6 +440,7 @@ class MujocoEnv(Environment):
 
         # [ih] poll '[' / ']' to adjust the wrist load before rendering this frame
         self._poll_env_keys()
+        pd_target = self._apply_arm_motion(pd_target)
         # [ih] floating readout above the robot. Velocity/height show the COMMAND (set
         # target, like the wrist load) when the policy provides it via set_cmd_readout;
         # pelvis height also shows the MEASURED value so the command/actual gap is visible
@@ -283,6 +487,15 @@ class MujocoEnv(Environment):
             if self._waist_manual:
                 _readout(0.86, [1.0, 0.9, 0.2, 0.95],
                          f"waist_pitch = {np.degrees(self._waist_manual_val):+.0f} deg  (, back / . fwd)", 96)
+            if self._arm_motion_mode != "off":
+                _readout(
+                    0.72,
+                    [0.8, 0.45, 1.0, 0.9],
+                    f"arms = {self._arm_motion_label}  swing={self._arm_swing_scale:.1f} j/k"
+                    f"  reach={self._arm_reach_scale:.1f} z/x"
+                    f"  spread={self._arm_spread_scale:.1f} c/v",
+                    95,
+                )
 
         self.viewer.cam.lookat = self.data.qpos.astype(np.float32)[:3]
         if self.viewer.is_alive:

@@ -607,6 +607,17 @@ class g1_agile_velheight_teacher(RlPipelineCfg):
         wrist_load_n=10.0,
         wrist_load_keyboard=True,
         waist_manual_keyboard=True,
+        arm_motion_mode="walk_squat_box",
+        arm_swing_amp=0.22,
+        arm_stride_ref=0.18,
+        arm_stride_filter_alpha=0.55,
+        arm_elbow_swing_amp=0.18,
+        arm_wrist_swing_amp=0.12,
+        arm_walk_spread_amp=0.12,
+        arm_motion_rate_dps=260.0,
+        arm_swing_keyboard=True,
+        arm_reach_keyboard=True,
+        arm_spread_keyboard=True,
     )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),

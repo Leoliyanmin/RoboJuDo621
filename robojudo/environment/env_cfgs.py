@@ -66,6 +66,36 @@ class MujocoEnvCfg(EnvCfg):
     waist_manual_keyboard: bool = False
     waist_manual_step_deg: float = 2.0
 
+    # [ih] Optional sim-only arm choreography for velheight demos. It overrides only the
+    # non-policy arm PD targets after the policy output has been expanded to the full G1 DoF.
+    arm_motion_mode: Literal["off", "walk_squat_box"] = "off"
+    arm_squat_height: float = 0.52
+    arm_stand_height: float = 0.66
+    arm_swing_amp: float = 0.10
+    arm_swing_hz: float = 1.15
+    arm_swing_speed_ref: float = 0.45
+    arm_stride_ref: float = 0.28
+    arm_stride_filter_alpha: float = 0.35
+    arm_elbow_swing_amp: float = 0.12
+    arm_wrist_swing_amp: float = 0.08
+    arm_walk_spread_amp: float = 0.10
+    arm_motion_rate_dps: float = 180.0
+    arm_swing_keyboard: bool = False
+    arm_swing_scale: float = 1.0
+    arm_swing_step: float = 0.1
+    arm_swing_min: float = 0.0
+    arm_swing_max: float = 2.0
+    arm_reach_keyboard: bool = False
+    arm_reach_scale: float = 1.0
+    arm_reach_step: float = 0.1
+    arm_reach_min: float = 0.5
+    arm_reach_max: float = 1.6
+    arm_spread_keyboard: bool = False
+    arm_spread_scale: float = 1.0
+    arm_spread_step: float = 0.1
+    arm_spread_min: float = 0.5
+    arm_spread_max: float = 2.2
+
 
 class RobotEnvCfg(EnvCfg):
     env_type: str = "DummyEnv"
