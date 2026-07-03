@@ -44,12 +44,18 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.height_min = float(self.cfg_policy.height_min)
         self.height_max = float(self.cfg_policy.height_max)
         self.height_step = float(self.cfg_policy.height_step)
+        self.turn_scale_keyboard = bool(getattr(self.cfg_policy, "turn_scale_keyboard", False))
+        self.turn_scale_default = float(getattr(self.cfg_policy, "turn_scale_default", 1.0))
+        self.turn_scale_step = float(getattr(self.cfg_policy, "turn_scale_step", 0.1))
+        self.turn_scale_min = float(getattr(self.cfg_policy, "turn_scale_min", 0.6))
+        self.turn_scale_max = float(getattr(self.cfg_policy, "turn_scale_max", 1.5))
         self.reset()
 
     def reset(self):
         self.timestep = 0
         self.last_action = np.zeros(self.num_actions, dtype=np.float32)  # 12, raw (pre-scale)
         self._height = self.height_default
+        self._turn_scale = self.turn_scale_default
         # [ih] velocity command EMA state (cfg.cmd_smooth_alpha, 1.0 = off). Ramps the
         # key-release vx->0 snap so the move->stop transient doesn't kick the legs into a
         # latency-driven resonance (same lever as the 23dof real deploy — see 29dof部署.md).
@@ -87,6 +93,10 @@ class AgileVelHeightRecurrentPolicy(Policy):
                         self._height = min(self.height_max, self._height + self.height_step)
                     elif event["name"] == "f":  # squat lower
                         self._height = max(self.height_min, self._height - self.height_step)
+                    elif self.turn_scale_keyboard and event["name"] == "m":
+                        self._turn_scale = min(self.turn_scale_max, self._turn_scale + self.turn_scale_step)
+                    elif self.turn_scale_keyboard and event["name"] == "n":
+                        self._turn_scale = max(self.turn_scale_min, self._turn_scale - self.turn_scale_step)
                 # velocity: read the timeout-managed keys_pressed set (SSH-terminal safe).
                 keys_pressed = {name.lower() for name in ctrl_data[key].get("keys_pressed", [])}
                 axis_sign = [
@@ -101,6 +111,7 @@ class AgileVelHeightRecurrentPolicy(Policy):
                         vel[i] = command_remap(sign, self.commands_map[i])
                 break
         vel = vel * self.max_cmd  # scale normalized vel-cmd to m/s, rad/s
+        vel[2] *= self._turn_scale
         # [ih] EMA-smooth the velocity command (height is already a slow r/f ramp, left raw).
         alpha = getattr(self.cfg_policy, "cmd_smooth_alpha", 1.0)
         if alpha < 1.0:
@@ -124,7 +135,7 @@ class AgileVelHeightRecurrentPolicy(Policy):
             body_vel_rel, hand_zeros,                    # 29 + optional frozen hand obs
             self.last_action,                            # 12
         ]).astype(np.float32)
-        return obs, {"commands": commands}
+        return obs, {"commands": commands, "turn_scale": self._turn_scale}
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         # Recurrent JIT: 1D obs in -> (12,) out; hidden state carried internally.
@@ -175,4 +186,4 @@ class AgileVelHeightTeacherPolicy(AgileVelHeightRecurrentPolicy):
             body_vel_rel, hand_zeros,                          # 29 + optional frozen hand obs
             self.last_action,                                  # 12
         ]).astype(np.float32)
-        return obs, {"commands": commands}
+        return obs, {"commands": commands, "turn_scale": self._turn_scale}

@@ -232,7 +232,7 @@ class RlPipeline(Pipeline):
         # [ih] feed the policy's command to the env for the on-screen readout (set target,
         # vs the env's measured state). Guarded — only MujocoEnv implements it.
         if hasattr(self.env, "set_cmd_readout"):
-            self.env.set_cmd_readout(extras.get("commands"), getattr(self.policy, "max_cmd", None))
+            self.env.set_cmd_readout(extras.get("commands"), getattr(self.policy, "max_cmd", None), extras=extras)
 
         # -- Detect motion done --
         callbacks = extras.get("CALLBACK", [])

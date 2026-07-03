@@ -39,6 +39,7 @@ class MujocoEnv(Environment):
         self._wrist_load_show = bool(getattr(cfg_env, "wrist_load_show", True))
         self._wrist_load_body_ids = []
         self._cmd_readout = None  # [ih] (vel_xyz_real, height_cmd_or_None) from the policy
+        self._cmd_extras = {}
         # [ih] deterministic waist-pitch forward lean vs height command (Phase 2)
         self._waist_lean_max = float(np.radians(getattr(cfg_env, "waist_squat_lean_deg", 0.0) or 0.0))
         self._waist_lean_hi = float(getattr(cfg_env, "waist_lean_hi", 0.65))
@@ -182,12 +183,13 @@ class MujocoEnv(Environment):
             self._torso_quat = fk_info[self._torso_name]["quat"]
             self._torso_pos = fk_info[self._torso_name]["pos"]
 
-    def set_cmd_readout(self, commands, max_cmd=None):
+    def set_cmd_readout(self, commands, max_cmd=None, extras=None):
         """[ih] store the policy's command (set target) for the viewer readout.
 
         commands len 4 -> [vx, vy, wz, height] already in real units (velheight policy);
         len 3 -> normalized [vx, vy, wz] (UnitreeWoGaitPolicy) -> scale by max_cmd to m/s.
         """
+        self._cmd_extras = extras or {}
         if commands is None:
             self._cmd_readout = None
             return
@@ -256,8 +258,14 @@ class MujocoEnv(Environment):
 
             if cmd is not None:
                 vel, h_cmd = cmd
-                _readout(1.28, [0.2, 0.8, 1.0, 0.9],
-                         f"vel cmd  vx={float(vel[0]):+.2f} vy={float(vel[1]):+.2f} wz={float(vel[2]):+.2f}", 97)
+                turn_scale = self._cmd_extras.get("turn_scale")
+                turn_text = "" if turn_scale is None else f"  turn={float(turn_scale):.1f} (n/m)"
+                _readout(
+                    1.28,
+                    [0.2, 0.8, 1.0, 0.9],
+                    f"vel cmd  vx={float(vel[0]):+.2f} vy={float(vel[1]):+.2f} wz={float(vel[2]):+.2f}{turn_text}",
+                    97,
+                )
                 if h_cmd is not None:
                     _readout(1.14, [0.4, 1.0, 0.4, 0.9],
                              f"height cmd {h_cmd:.2f} / now {z:.2f} m", 98)

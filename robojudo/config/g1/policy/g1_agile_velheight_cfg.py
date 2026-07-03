@@ -91,12 +91,17 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     # velocity command remap (vx, vy, wz). height is a separate persistent command.
     max_cmd: list[float] = [0.8, 0.5, 1.0]
     commands_map: list[list[float]] = [[-1.0, 0.0, 1.0], [1.0, 0.0, -1.0], [1.0, 0.0, -1.0]]
+    turn_scale_keyboard: bool = False
+    turn_scale_default: float = 1.0
+    turn_scale_step: float = 0.1
+    turn_scale_min: float = 0.6
+    turn_scale_max: float = 1.5
 
     # height command (target base height): r = taller, f = squat lower.
     # [ih] match the AGILE training range base_height=(0.4, DEFAULT_PELVIS_HEIGHT=0.72).
     # (was 0.50/0.74 — squat clamped 10 cm short of trained, stand 2 cm past it.)
     height_default: float = 0.72
-    height_min: float = 0.40
+    height_min: float = 0.20
     height_max: float = 0.72
     height_step: float = 0.01
 
@@ -118,3 +123,4 @@ class G1AgileVelHeight29DOFPolicyCfg(G1AgileVelHeightPolicyCfg):
 class G1AgileVelHeightTeacherPolicyCfg(G1AgileVelHeightPolicyCfg):
     policy_type: str = "AgileVelHeightTeacherPolicy"
     policy_name: str = "velheight_frozenhands_wrist20_teacher"
+    turn_scale_keyboard: bool = True
