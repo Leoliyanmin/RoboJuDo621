@@ -6,7 +6,7 @@
 #   policy, so the robot mjcf needs only the 29 body joints).
 # action_dof = 12 leg joints with the AGILE per-joint gains/offsets.
 
-from robojudo.config import ASSETS_DIR, Config
+from robojudo.config import ASSETS_DIR, ROOT_DIR, Config
 from robojudo.policy.policy_cfgs import PolicyCfg
 from robojudo.tools.tool_cfgs import DoFConfig
 
@@ -124,3 +124,48 @@ class G1AgileVelHeightTeacherPolicyCfg(G1AgileVelHeightPolicyCfg):
     policy_type: str = "AgileVelHeightTeacherPolicy"
     policy_name: str = "velheight_frozenhands_wrist20_teacher"
     turn_scale_keyboard: bool = True
+
+
+# ── Deep-squat × arm-swing ablation policies (2026-07-04) ──────────────────────────────────
+# All three share the same AgileVelHeightRecurrentPolicy architecture (29-DoF frozen-hands,
+# 128 obs, 12-leg actions) and were trained on g1_29dof_rev_1_0_handmass.xml at 200 Hz.
+# Source: deepsquat_armswing_final_policies/README.md
+
+class G1DeepSquatPINPolicyCfg(G1AgileVelHeightPolicyCfg):
+    """PIN baseline deep-squat teacher (frozen hands, no arm DR, zero-speed arm pinned).
+
+    Exported from the teacher actor (MLP, non-recurrent, 131-dim obs: adds base_lin_vel after
+    commands). Runs in MuJoCo sim only — base_lin_vel is privileged and unavailable on hardware.
+    """
+
+    policy_type: str = "AgileVelHeightTeacherPolicy"
+
+    @property
+    def policy_file(self) -> str:
+        return (ROOT_DIR / "deepsquat_armswing_final_policies/0_PIN_baseline_model_3750.pt").as_posix()
+
+
+class G1DeepSquatRandArmsPolicyCfg(G1AgileVelHeightPolicyCfg):
+    """Deep-squat #1 RandArms teacher (random arm pose at all gaits, incl. walking).
+
+    Exported from the teacher actor (MLP, non-recurrent, 131-dim obs). Sim-only.
+    """
+
+    policy_type: str = "AgileVelHeightTeacherPolicy"
+
+    @property
+    def policy_file(self) -> str:
+        return (ROOT_DIR / "deepsquat_armswing_final_policies/1_RandArms_scratch_model_3999.pt").as_posix()
+
+
+class G1DeepSquatArmSwingPolicyCfg(G1AgileVelHeightPolicyCfg):
+    """Deep-squat #2 ArmSwing teacher (scripted sinusoidal arm swing, speed-gated).
+
+    Exported from the teacher actor (MLP, non-recurrent, 131-dim obs). Sim-only.
+    """
+
+    policy_type: str = "AgileVelHeightTeacherPolicy"
+
+    @property
+    def policy_file(self) -> str:
+        return (ROOT_DIR / "deepsquat_armswing_final_policies/2_ArmSwing_scratch_model_3999.pt").as_posix()

@@ -68,7 +68,7 @@ class MujocoEnvCfg(EnvCfg):
 
     # [ih] Optional sim-only arm choreography for velheight demos. It overrides only the
     # non-policy arm PD targets after the policy output has been expanded to the full G1 DoF.
-    arm_motion_mode: Literal["off", "walk_squat_box"] = "off"
+    arm_motion_mode: Literal["off", "walk_squat_box", "walk_elbow"] = "off"
     arm_squat_height: float = 0.52
     arm_stand_height: float = 0.66
     arm_swing_amp: float = 0.10

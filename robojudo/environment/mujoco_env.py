@@ -411,23 +411,34 @@ class MujocoEnv(Environment):
         swing = self._arm_swing_amp * swing_signal
 
         target_pose = dict(G1_ARM_HANG_POSE)
+        # shoulder roll spread — common to all non-off modes
         walk_spread = self._arm_walk_spread_amp * (self._arm_spread_scale - 1.0) * walk_alpha
         target_pose["left_shoulder_roll_joint"] += walk_spread
         target_pose["right_shoulder_roll_joint"] -= walk_spread
-        target_pose["left_shoulder_pitch_joint"] += swing
-        target_pose["right_shoulder_pitch_joint"] -= swing
-        left_forward = max(-swing_signal, 0.0)
-        right_forward = max(swing_signal, 0.0)
-        target_pose["left_elbow_joint"] += self._arm_elbow_swing_amp * left_forward
-        target_pose["right_elbow_joint"] += self._arm_elbow_swing_amp * right_forward
-        target_pose["left_wrist_pitch_joint"] -= self._arm_wrist_swing_amp * left_forward
-        target_pose["right_wrist_pitch_joint"] -= self._arm_wrist_swing_amp * right_forward
-        for joint_name, box_value in G1_ARM_BOX_POSE.items():
-            box_delta = box_value - G1_ARM_HANG_POSE[joint_name]
-            if joint_name in G1_ARM_SPREAD_JOINTS:
-                box_delta *= self._arm_spread_scale
-            box_value = G1_ARM_HANG_POSE[joint_name] + self._arm_reach_scale * box_delta
-            target_pose[joint_name] = (1.0 - squat_alpha) * target_pose[joint_name] + squat_alpha * box_value
+
+        if self._arm_motion_mode == "walk_squat_box":
+            # Primary swing: shoulder pitch forward/backward; elbow/wrist as secondary.
+            target_pose["left_shoulder_pitch_joint"] += swing
+            target_pose["right_shoulder_pitch_joint"] -= swing
+            left_forward = max(-swing_signal, 0.0)
+            right_forward = max(swing_signal, 0.0)
+            target_pose["left_elbow_joint"] += self._arm_elbow_swing_amp * left_forward
+            target_pose["right_elbow_joint"] += self._arm_elbow_swing_amp * right_forward
+            target_pose["left_wrist_pitch_joint"] -= self._arm_wrist_swing_amp * left_forward
+            target_pose["right_wrist_pitch_joint"] -= self._arm_wrist_swing_amp * right_forward
+            for joint_name, box_value in G1_ARM_BOX_POSE.items():
+                box_delta = box_value - G1_ARM_HANG_POSE[joint_name]
+                if joint_name in G1_ARM_SPREAD_JOINTS:
+                    box_delta *= self._arm_spread_scale
+                box_value = G1_ARM_HANG_POSE[joint_name] + self._arm_reach_scale * box_delta
+                target_pose[joint_name] = (1.0 - squat_alpha) * target_pose[joint_name] + squat_alpha * box_value
+        elif self._arm_motion_mode == "walk_elbow":
+            # Primary swing: elbow flex/extend sinusoidally; shoulder pitch stays at hang.
+            # Sign: elbow bends MORE when that arm is going backward (matches natural gait).
+            #   left_elbow  -= swing  →  bends when stride_signal < 0 (left arm back)
+            #   right_elbow += swing  →  bends when stride_signal > 0 (right arm back)
+            target_pose["left_elbow_joint"] -= swing
+            target_pose["right_elbow_joint"] += swing
 
         pd_target = np.array(pd_target, dtype=np.float64)
         max_delta = self._arm_motion_rate * self.control_dt
@@ -440,7 +451,7 @@ class MujocoEnv(Environment):
             self._arm_cur[joint_name] = cur
             pd_target[dof_idx] = cur
 
-        if squat_alpha > 0.65:
+        if self._arm_motion_mode == "walk_squat_box" and squat_alpha > 0.65:
             self._arm_motion_label = "box reach"
         elif speed_alpha > 0.05:
             self._arm_motion_label = "walk stride"
