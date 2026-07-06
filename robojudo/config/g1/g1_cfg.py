@@ -363,9 +363,9 @@ class g1_ih_velocity_23dof_real_py_keyboard(g1_agile_velocity_23dof_real_py_keyb
 # [ih] AGILE velocity-HEIGHT frozen-hands RECURRENT (LSTM) policy, sim2sim.
 # Keyboard: w/a/s/d=vx/vy, q/e=yaw, r/f=stand taller/squat lower. obs 128 (no history),
 # 12 leg joints controlled, 24 DFQ hand joints zero-padded (frozen). 200Hz physics.
-# Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_agile_velheight
+# Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_velheight
 @cfg_registry.register
-class g1_agile_velheight(RlPipelineCfg):
+class g1_ih_29dof_velheight(RlPipelineCfg):
     """[ih] AGILE Velocity-Height FrozenHands Wrist20 distillation recurrent student."""
 
     robot: str = "g1"
@@ -397,8 +397,9 @@ class g1_agile_velheight(RlPipelineCfg):
 
 
 @cfg_registry.register
-class g1_agile_velheight_29dof(RlPipelineCfg):
-    """AGILE velocity-height recurrent student on the stock 29-DoF G1 MJCF."""
+class g1_official_29dof_velheight(RlPipelineCfg):
+    """[ih] OFFICIAL AGILE velocity-height recurrent student on the **stock** 29-DoF G1 MJCF
+    (`g1_29dof_rev_1_0.xml`, no handmass). `official` = stock xml; `ih_*` = handmass xml."""
 
     robot: str = "g1"
     env: G1MujocoEnvCfg = G1MujocoEnvCfg(
@@ -414,7 +415,7 @@ class g1_agile_velheight_29dof(RlPipelineCfg):
 
 
 @cfg_registry.register
-class g1_agile_velheight_real(g1_agile_velheight):
+class g1_agile_velheight_real(g1_ih_29dof_velheight):
     """[ih] AGILE velocity-height frozen-hands recurrent student on the REAL 29-DoF G1.
 
     Deploys assets/models/g1/agile/velheight_frozenhands_wrist20_recurrent.pt. See
@@ -545,7 +546,7 @@ class g1_ih_velheight_29dof_real_py_keyboard(g1_agile_velheight_real_py_keyboard
 
 
 @cfg_registry.register
-class g1_ih_velheight_23dof(g1_agile_velheight):
+class g1_ih_velheight_23dof(g1_ih_29dof_velheight):
     """Compatibility alias for the IH velocity-height 23-DoF sim2sim config."""
 
     env: G1_23MujocoEnvCfg = G1_23MujocoEnvCfg(
@@ -590,13 +591,13 @@ class g1_ih_velheight_23dof_real_py(g1_ih_velheight_23dof_real):
     )
 
 
-# [ih] TEACHER-in-MuJoCo diagnostic pipeline. Same env as g1_agile_velheight, but runs the
+# [ih] TEACHER-in-MuJoCo diagnostic pipeline. Same env as g1_ih_29dof_velheight, but runs the
 # privileged non-recurrent TEACHER (obs adds base_lin_vel, available in sim). Used to check
 # whether the teacher stays stable in MuJoCo too (vs the recurrent student's feet-converge).
 # Sim-only (teacher needs privileged obs); NOT a deployable config.
-# Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_agile_velheight_teacher
+# Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_velheight_teacher
 @cfg_registry.register
-class g1_agile_velheight_teacher(RlPipelineCfg):
+class g1_ih_29dof_velheight_teacher(RlPipelineCfg):
     """[ih] AGILE velheight wrist20 TEACHER (privileged, non-recurrent) — MuJoCo diagnostic."""
 
     robot: str = "g1"

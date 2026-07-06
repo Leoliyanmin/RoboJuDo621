@@ -13,13 +13,13 @@ the recurrence + different obs layout needs a dedicated policy class.
 | `robojudo/policy/agile_velheight_policy.py` | NEW — `AgileVelHeightRecurrentPolicy` (obs assembly, LSTM state, height cmd) |
 | `robojudo/policy/__init__.py` | EDIT — register the policy |
 | `robojudo/config/g1/policy/g1_agile_velheight_cfg.py` | NEW — DoF (29 body / 12 legs) + `G1AgileVelHeightPolicyCfg` |
-| `robojudo/config/g1/g1_cfg.py` | EDIT — import + register `g1_agile_velheight` pipeline |
+| `robojudo/config/g1/g1_cfg.py` | EDIT — import + register `g1_ih_29dof_velheight` pipeline |
 | `assets/models/g1/agile/velheight_frozenhands_wrist20_recurrent.pt` | NEW — the JIT policy |
 
 ## Run
 
 ```bash
-SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_agile_velheight
+SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_velheight
 ```
 
 Keyboard (pynput global listener):

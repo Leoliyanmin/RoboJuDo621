@@ -1,5 +1,11 @@
 from robojudo.config import cfg_registry
 
+# [ih] On an unknown `-c`, only suggest the clean 29dof SIM task family (g1_<ih|official>_29dof_*)
+# instead of dumping all ~50 configs. Hidden for now: 23dof, real-robot deploy (`_real`), and the
+# legacy `agile`-named / velocity-history configs — they don't fit the current sim focus.
+_RELEVANT_CFG_KW = ("official", "ih", "agile", "velheight", "velocity", "deepsquat", "29dof", "unitree")
+_HIDE_CFG_KW = ("23dof", "_real", "agile")
+
 
 class ConfigManager:
     def __init__(self, config_name: str, override_cfg: dict | None = None):
@@ -12,6 +18,20 @@ class ConfigManager:
         return self.cfg
 
     def parse_config(self):
+        # [ih] friendly unknown-config error: list only the relevant task family, not all ~50.
+        # Meaning is carried by the naming convention itself (g1_<ih|official>_29dof_velheight...),
+        # so no per-config description is printed.
+        if self.config_name not in cfg_registry.types:
+            suggestions = sorted(
+                n
+                for n in cfg_registry.types
+                if any(k in n for k in _RELEVANT_CFG_KW) and not any(h in n for h in _HIDE_CFG_KW)
+            )
+            raise SystemExit(
+                f"[config] unknown -c config: {self.config_name!r}\n"
+                f"  available 29dof configs (ih_* = our AGILE retrain, official_* = stock):\n"
+                + "\n".join(f"    {n}" for n in suggestions)
+            )
         # cfg_class = getattr(robojudo.config, self.config_name)
         cfg_class = cfg_registry.get(self.config_name)
         cfg_raw = cfg_class()

@@ -81,12 +81,12 @@ _DEEPSQUAT_ENV = dict(
 
 
 @cfg_registry.register
-class g1_deepsquat_pin(RlPipelineCfg):
+class g1_ih_29dof_deepsquat_pin(RlPipelineCfg):
     """[ih] Deep-squat PIN baseline (29-DoF frozen-hands, no arm DR).
 
     Best overall: 0.31 m pelvis at cmd 0.20, 2 % fall rate (deep+stable); walking+arm-swing
     0–1 % fall rate. Use this as the reference when comparing the arm-swing ablations.
-    Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_deepsquat_pin
+    Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_deepsquat_pin
     """
 
     robot: str = "g1"
@@ -96,13 +96,13 @@ class g1_deepsquat_pin(RlPipelineCfg):
 
 
 @cfg_registry.register
-class g1_deepsquat_randarms(RlPipelineCfg):
+class g1_ih_29dof_deepsquat_randarms(RlPipelineCfg):
     """[ih] Deep-squat #1 RandArms (random arm pose at ALL gaits incl. walking).
 
     Training note: no_random_when_walking=False — arms jump to random static poses even while
     walking. Result: catastrophic degradation (100 % squat fall, 31–47 % walk fall). Included
     for ablation reference only; do NOT deploy.
-    Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_deepsquat_randarms
+    Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_deepsquat_randarms
     """
 
     robot: str = "g1"
@@ -112,13 +112,13 @@ class g1_deepsquat_randarms(RlPipelineCfg):
 
 
 @cfg_registry.register
-class g1_deepsquat_armswing(RlPipelineCfg):
+class g1_ih_29dof_deepsquat_armswing(RlPipelineCfg):
     """[ih] Deep-squat #2 ArmSwing (scripted sinusoidal arm swing, speed-gated).
 
     Shoulder pitch/roll driven by ArmSwingAction (sine swing + outward spread when walking,
     returns to default at zero speed). Result: walk+arm-swing as stable as PIN (0–1 % fall),
     but squat depth 12 cm shallower than PIN (multi-task interference).
-    Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_deepsquat_armswing
+    Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_deepsquat_armswing
     """
 
     robot: str = "g1"

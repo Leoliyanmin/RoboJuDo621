@@ -126,7 +126,7 @@ PYTHONPATH=/home/unitree/29_dof_locomotion/RoboJuDo621 \
 | `robojudo/config/g1/g1_cfg.py` | 充实 `g1_agile_velheight_real`（prepare 斜坡、`arm_sdk=None`、`cmd_smooth_alpha=0.1`、safety）；新增 `*_keyboard` / `*_py` / `*_py_keyboard`；新增 `g1_ih_velheight_29dof_real*` 别名 |
 | `docs/29dof部署.md` | 本文 |
 
-> 仿真侧 `g1_agile_velheight`（MuJoCo）与策略/配置的 obs、增益、动作 scale 未改；平滑默认关闭，仿真行为不变。
+> 仿真侧 `g1_ih_29dof_velheight`（MuJoCo）与策略/配置的 obs、增益、动作 scale 未改；平滑默认关闭，仿真行为不变。
 
 ---
 
