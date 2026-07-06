@@ -407,6 +407,16 @@ class g1_official_29dof_velheight(RlPipelineCfg):
         sim_decimation=4,
         xml=(ASSETS_DIR / "robots/g1/g1_29dof_rev_1_0.xml").as_posix(),
         waist_manual_keyboard=True,
+        arm_motion_mode="walk_elbow",
+        arm_swing_amp=0.22,
+        arm_swing_scale=1.0,
+        arm_stride_ref=0.18,
+        arm_stride_filter_alpha=0.55,
+        arm_walk_spread_amp=0.12,
+        arm_spread_scale=2.2,
+        arm_motion_rate_dps=260.0,
+        arm_swing_keyboard=True,
+        arm_spread_keyboard=True,
     )
     ctrl: list[KeyboardCtrlCfg] = [
         KeyboardCtrlCfg(),
