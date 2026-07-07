@@ -24,6 +24,7 @@ from .env.g1_real_env_cfg import G1RealEnvCfg, G1UnitreeCfg  # noqa: F401
 from .policy.g1_agile_velheight_cfg import (  # noqa: F401
     G1DeepSquatArmSwingPolicyCfg,
     G1DeepSquatPINPolicyCfg,
+    G1DeepSquatPINStudentPolicyCfg,
     G1DeepSquatRandArmsPolicyCfg,
 )
 from .policy.g1_amo_policy_cfg import G1AmoPolicyCfg  # noqa: F401
@@ -80,13 +81,41 @@ _DEEPSQUAT_ENV = dict(
 )
 
 
+# [ih] Student display env: two demo motions in one mode (walk_squat_box).
+#   • walking  -> shoulder-pitch arm swing (走路摆手)
+#   • squatting-> arms blend forward into the box-carry reach pose (下蹲前伸手臂),
+#     gated by the height command (arm_stand_height 0.66 -> arm_squat_height 0.52).
+# z/x tune forward-reach depth, c/v tune spread, j/k tune walk-swing.
+_DEEPSQUAT_STUDENT_ENV = {
+    **_DEEPSQUAT_ENV,
+    "arm_motion_mode": "walk_squat_box",
+    "arm_reach_keyboard": True,  # z/x = reach forward less/more when squatting
+}
+
+
 @cfg_registry.register
 class g1_ih_29dof_deepsquat_pin(RlPipelineCfg):
-    """[ih] Deep-squat PIN baseline (29-DoF frozen-hands, no arm DR).
+    """[ih] Deep-squat PIN — DEPLOYABLE recurrent STUDENT (distilled from the PIN teacher).
 
-    Best overall: 0.31 m pelvis at cmd 0.20, 2 % fall rate (deep+stable); walking+arm-swing
-    0–1 % fall rate. Use this as the reference when comparing the arm-swing ablations.
+    128-dim proprioceptive obs (no privileged base_lin_vel), LSTM-recurrent, 12-leg actions;
+    distilled from repro29 model_3750 (behavior loss 0.0097). This is the deployable policy.
+    Arm demo (walk_squat_box): walking -> shoulder-pitch swing; squatting -> arms reach forward.
     Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_deepsquat_pin
+    """
+
+    robot: str = "g1"
+    env: G1MujocoEnvCfg = G1MujocoEnvCfg(**_DEEPSQUAT_STUDENT_ENV)
+    ctrl: list[KeyboardCtrlCfg] = [KeyboardCtrlCfg()]
+    policy: G1DeepSquatPINStudentPolicyCfg = G1DeepSquatPINStudentPolicyCfg()
+
+
+@cfg_registry.register
+class g1_ih_29dof_deepsquat_pin_teacher(RlPipelineCfg):
+    """[ih] Deep-squat PIN TEACHER (privileged, non-recurrent, 131-dim obs incl. base_lin_vel).
+
+    Sim-only diagnostic (base_lin_vel is unavailable on hardware). model_3750: 0.31 m pelvis at
+    cmd 0.20, 2 % fall (deep+stable); walking+arm-swing 0–1 % fall. Reference for the ablations.
+    Run: SDL_AUDIODRIVER=dummy python scripts/run_pipeline.py -c g1_ih_29dof_deepsquat_pin_teacher
     """
 
     robot: str = "g1"

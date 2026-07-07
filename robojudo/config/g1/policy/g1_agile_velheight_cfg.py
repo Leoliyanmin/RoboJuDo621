@@ -169,3 +169,14 @@ class G1DeepSquatArmSwingPolicyCfg(G1AgileVelHeightPolicyCfg):
     @property
     def policy_file(self) -> str:
         return (ROOT_DIR / "deepsquat_armswing_final_policies/2_ArmSwing_scratch_model_3999.pt").as_posix()
+
+
+# [ih] PIN deep-squat DEPLOYABLE student (2026-07-06). Distilled from the PIN teacher (repro29,
+# model_3750) over 1500 iters (behavior loss 0.32 -> 0.0097). Recurrent (LSTM 128->256) + MLP,
+# 128-dim PROPRIOCEPTIVE obs (NO privileged base_lin_vel), 12-leg actions. Same architecture /
+# obs layout / gains as the velheight recurrent student (G1AgileVelHeightPolicyCfg) -- only the
+# checkpoint differs -- so it deploys on hardware and runs in sim alike (unlike the teacher).
+class G1DeepSquatPINStudentPolicyCfg(G1AgileVelHeightPolicyCfg):
+    """PIN deep-squat deployable recurrent student (128-dim proprioceptive obs)."""
+
+    policy_name: str = "deepsquat_pin_repro29_recurrent"
