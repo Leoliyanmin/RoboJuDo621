@@ -97,6 +97,18 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     turn_scale_min: float = 0.6
     turn_scale_max: float = 1.5
 
+    # Optional deploy-side workaround for the weak "dead stop -> pure yaw" transition:
+    # if the user presses only q/e after being idle, briefly command a tiny forward step at
+    # normal height before releasing the yaw command. This mirrors the hand-tested recovery
+    # sequence without changing key semantics. Disabled by default so stock policies remain
+    # bit-for-bit command compatible unless a config opts in.
+    turn_prime_enabled: bool = False
+    turn_prime_idle_seconds: float = 0.20
+    turn_prime_duration_seconds: float = 0.80
+    turn_prime_vx: float = 0.18
+    turn_prime_yaw_scale: float = 0.0
+    turn_prime_height: float = 0.72
+
     # height command (target base height): r = taller, f = squat lower.
     # [ih] match the AGILE training range base_height=(0.4, DEFAULT_PELVIS_HEIGHT=0.72).
     # (was 0.50/0.74 — squat clamped 10 cm short of trained, stand 2 cm past it.)
@@ -139,6 +151,7 @@ class G1DeepSquatPINPolicyCfg(G1AgileVelHeightPolicyCfg):
     """
 
     policy_type: str = "AgileVelHeightTeacherPolicy"
+    turn_prime_enabled: bool = True
 
     @property
     def policy_file(self) -> str:
@@ -180,3 +193,4 @@ class G1DeepSquatPINStudentPolicyCfg(G1AgileVelHeightPolicyCfg):
     """PIN deep-squat deployable recurrent student (128-dim proprioceptive obs)."""
 
     policy_name: str = "deepsquat_pin_repro29_recurrent"
+    turn_prime_enabled: bool = True

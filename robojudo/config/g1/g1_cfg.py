@@ -466,6 +466,9 @@ class g1_agile_velheight_real(g1_ih_29dof_velheight):
     # cmd_smooth_alpha=0.1 (~0.2 s EMA) softens the key-release vx->0 snap that triggers it.
     policy: G1AgileVelHeightPolicyCfg = G1AgileVelHeightPolicyCfg(
         cmd_smooth_alpha=0.1,
+        # [ih] protect dead-stop pure-yaw starts on real hardware: q/e first commands a
+        # tiny forward prime at normal height, then releases yaw. Key semantics unchanged.
+        turn_prime_enabled=True,
     )
     ctrl: list[UnitreeCtrlCfg] = [
         UnitreeCtrlCfg(),
@@ -479,7 +482,7 @@ class g1_agile_velheight_real_keyboard(g1_agile_velheight_real):
 
     Velocity/height keys are read by the policy, NOT bound as triggers (a triggered key is
     consumed and never reaches the policy): w/s = fwd/back (vx), a/d = strafe (vy),
-    q/e = turn (wz), r = stand taller, f = squat lower. '|' (shift-\) re-starts motion
+    q/e = turn (wz), r = stand taller, f = squat lower. '|' (shift-backslash) re-starts motion
     ([MOTION_RESET]); o/O/Esc/Ctrl-C shut down. Run over an interactive TTY (ssh/tmux, not
     nohup): held keys auto-expire after terminal_key_timeout (~0.25 s) with no DISPLAY.
     """

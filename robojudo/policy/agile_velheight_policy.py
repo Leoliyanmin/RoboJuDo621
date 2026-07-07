@@ -49,6 +49,15 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.turn_scale_step = float(getattr(self.cfg_policy, "turn_scale_step", 0.1))
         self.turn_scale_min = float(getattr(self.cfg_policy, "turn_scale_min", 0.6))
         self.turn_scale_max = float(getattr(self.cfg_policy, "turn_scale_max", 1.5))
+        self.turn_prime_enabled = bool(getattr(self.cfg_policy, "turn_prime_enabled", False))
+        turn_prime_idle_s = float(getattr(self.cfg_policy, "turn_prime_idle_seconds", 0.20))
+        turn_prime_duration_s = float(getattr(self.cfg_policy, "turn_prime_duration_seconds", 0.80))
+        self.turn_prime_idle_steps = max(0, int(round(turn_prime_idle_s * self.freq)))
+        self.turn_prime_steps = max(1, int(round(turn_prime_duration_s * self.freq)))
+        self.turn_prime_vx = float(getattr(self.cfg_policy, "turn_prime_vx", 0.18))
+        self.turn_prime_yaw_scale = float(getattr(self.cfg_policy, "turn_prime_yaw_scale", 0.0))
+        turn_prime_height = float(getattr(self.cfg_policy, "turn_prime_height", self.height_default))
+        self.turn_prime_height = min(self.height_max, max(self.height_min, turn_prime_height))
         self.reset()
 
     def reset(self):
@@ -60,6 +69,9 @@ class AgileVelHeightRecurrentPolicy(Policy):
         # key-release vx->0 snap so the move->stop transient doesn't kick the legs into a
         # latency-driven resonance (same lever as the 23dof real deploy — see 29dof部署.md).
         self._cmd_smoothed = np.zeros(3, dtype=np.float32)
+        self._idle_cmd_steps = self.turn_prime_idle_steps
+        self._turn_prime_steps_left = 0
+        self._turn_prime_active = False
         # Clear the LSTM hidden state carried inside the exported JIT.
         for name, buf in self.model.named_buffers():
             if "hidden" in name or "cell" in name:
@@ -67,6 +79,49 @@ class AgileVelHeightRecurrentPolicy(Policy):
 
     def post_step_callback(self, commands=None):
         self.timestep += 1
+
+    def _apply_turn_prime(self, vel: np.ndarray, height: float) -> tuple[np.ndarray, float]:
+        """Prime dead-stop pure-yaw turns with a tiny forward step.
+
+        This is intentionally outside the learned policy: the exported obs/action ABI is
+        unchanged. It only reshapes user commands for the weak transition reproduced in
+        MuJoCo and on the operator side: stable idle/crouch -> q/e -> feet stay planted.
+        """
+        self._turn_prime_active = False
+        if not self.turn_prime_enabled:
+            return vel, height
+
+        eps = 1e-4
+        is_idle_cmd = np.max(np.abs(vel)) <= eps
+        is_pure_yaw = (
+            abs(float(vel[2])) > eps
+            and abs(float(vel[0])) <= eps
+            and abs(float(vel[1])) <= eps
+        )
+
+        if not is_pure_yaw:
+            self._turn_prime_steps_left = 0
+            if is_idle_cmd:
+                self._idle_cmd_steps = min(self.turn_prime_idle_steps, self._idle_cmd_steps + 1)
+            else:
+                self._idle_cmd_steps = 0
+            return vel, height
+
+        if self._turn_prime_steps_left <= 0 and self._idle_cmd_steps >= self.turn_prime_idle_steps:
+            self._turn_prime_steps_left = self.turn_prime_steps
+
+        self._idle_cmd_steps = 0
+        height = max(float(height), self.turn_prime_height)
+        if self._turn_prime_steps_left <= 0:
+            return vel, height
+
+        primed_vel = vel.copy()
+        primed_vel[0] = self.turn_prime_vx
+        primed_vel[1] = 0.0
+        primed_vel[2] = vel[2] * self.turn_prime_yaw_scale
+        self._turn_prime_steps_left -= 1
+        self._turn_prime_active = True
+        return primed_vel, height
 
     def _get_commands(self, ctrl_data) -> np.ndarray:
         """Return [vx, vy, wz, height]. vx/vy/wz from held velocity keys / joystick axes;
@@ -112,12 +167,14 @@ class AgileVelHeightRecurrentPolicy(Policy):
                 break
         vel = vel * self.max_cmd  # scale normalized vel-cmd to m/s, rad/s
         vel[2] *= self._turn_scale
+        height = self._height
+        vel, height = self._apply_turn_prime(vel, height)
         # [ih] EMA-smooth the velocity command (height is already a slow r/f ramp, left raw).
         alpha = getattr(self.cfg_policy, "cmd_smooth_alpha", 1.0)
         if alpha < 1.0:
             self._cmd_smoothed = alpha * vel + (1.0 - alpha) * self._cmd_smoothed
             vel = self._cmd_smoothed.copy()
-        return np.array([vel[0], vel[1], vel[2], self._height], dtype=np.float32)
+        return np.array([vel[0], vel[1], vel[2], height], dtype=np.float32)
 
     def get_observation(self, env_data, ctrl_data):
         commands = self._get_commands(ctrl_data)  # (4,)
@@ -135,7 +192,7 @@ class AgileVelHeightRecurrentPolicy(Policy):
             body_vel_rel, hand_zeros,                    # 29 + optional frozen hand obs
             self.last_action,                            # 12
         ]).astype(np.float32)
-        return obs, {"commands": commands, "turn_scale": self._turn_scale}
+        return obs, {"commands": commands, "turn_scale": self._turn_scale, "turn_prime": self._turn_prime_active}
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         # Recurrent JIT: 1D obs in -> (12,) out; hidden state carried internally.
@@ -186,4 +243,4 @@ class AgileVelHeightTeacherPolicy(AgileVelHeightRecurrentPolicy):
             body_vel_rel, hand_zeros,                          # 29 + optional frozen hand obs
             self.last_action,                                  # 12
         ]).astype(np.float32)
-        return obs, {"commands": commands, "turn_scale": self._turn_scale}
+        return obs, {"commands": commands, "turn_scale": self._turn_scale, "turn_prime": self._turn_prime_active}

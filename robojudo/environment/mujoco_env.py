@@ -498,6 +498,7 @@ class MujocoEnv(Environment):
                 vel, h_cmd = cmd
                 turn_scale = self._cmd_extras.get("turn_scale")
                 turn_text = "" if turn_scale is None else f"  turn={float(turn_scale):.1f} (n/m)"
+                turn_text += " prime" if self._cmd_extras.get("turn_prime") else ""
                 _readout(
                     1.28,
                     [0.2, 0.8, 1.0, 0.9],
