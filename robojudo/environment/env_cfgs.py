@@ -90,6 +90,7 @@ class MujocoEnvCfg(EnvCfg):
     arm_reach_step: float = 0.1
     arm_reach_min: float = 0.5
     arm_reach_max: float = 1.6
+    arm_mode_keyboard: bool = False
     arm_spread_keyboard: bool = False
     arm_spread_scale: float = 1.0
     arm_spread_step: float = 0.1

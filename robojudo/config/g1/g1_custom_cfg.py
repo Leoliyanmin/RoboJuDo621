@@ -76,6 +76,7 @@ _DEEPSQUAT_ENV = dict(
     arm_walk_spread_amp=0.12,  # per-unit shoulder-roll spread (rad)
     arm_spread_scale=2.2,      # default: fully spread (arm_spread_max); c/v to adjust
     arm_motion_rate_dps=260.0,
+    arm_mode_keyboard=True,    # m = cycle: off → walk_elbow → walk_squat_box
     arm_swing_keyboard=True,   # j = swing up / k = swing down
     arm_spread_keyboard=True,  # v = spread up / c = spread down
 )

@@ -120,6 +120,8 @@ class MujocoEnv(Environment):
         self._arm_reach_step = float(getattr(cfg_env, "arm_reach_step", 0.1))
         self._arm_reach_min = float(getattr(cfg_env, "arm_reach_min", 0.5))
         self._arm_reach_max = float(getattr(cfg_env, "arm_reach_max", 1.6))
+        self._arm_mode_kb = bool(getattr(cfg_env, "arm_mode_keyboard", False))
+        self._arm_mode_cycle = ("off", "walk_elbow", "walk_squat_box")
         self._arm_spread_kb = bool(getattr(cfg_env, "arm_spread_keyboard", False))
         self._arm_spread_scale = float(getattr(cfg_env, "arm_spread_scale", 1.0))
         self._arm_spread_step = float(getattr(cfg_env, "arm_spread_step", 0.1))
@@ -166,6 +168,7 @@ class MujocoEnv(Environment):
         if (
             self._wrist_load_kb
             or self._waist_manual
+            or self._arm_mode_kb
             or self._arm_swing_kb
             or self._arm_reach_kb
             or self._arm_spread_kb
@@ -349,6 +352,10 @@ class MujocoEnv(Environment):
             elif self._arm_spread_kb and name == "c":
                 self._arm_spread_scale = max(self._arm_spread_min, self._arm_spread_scale - self._arm_spread_step)
                 logger.info(f"[ih] arm spread -> {self._arm_spread_scale:.2f}")
+            elif self._arm_mode_kb and name == "m":
+                idx = self._arm_mode_cycle.index(self._arm_motion_mode) if self._arm_motion_mode in self._arm_mode_cycle else 0
+                self._arm_motion_mode = self._arm_mode_cycle[(idx + 1) % len(self._arm_mode_cycle)]
+                logger.info(f"[ih] arm mode -> {self._arm_motion_mode}")
 
     @staticmethod
     def _smoothstep(alpha: float) -> float:
@@ -514,11 +521,12 @@ class MujocoEnv(Environment):
             if self._waist_manual:
                 _readout(0.86, [1.0, 0.9, 0.2, 0.95],
                          f"waist_pitch = {np.degrees(self._waist_manual_val):+.0f} deg  (, back / . fwd)", 96)
-            if self._arm_motion_mode != "off":
+            if self._arm_motion_mode != "off" or self._arm_mode_kb:
+                mode_hint = f"  [m]={self._arm_motion_mode}" if self._arm_mode_kb else ""
                 _readout(
                     0.72,
-                    [0.8, 0.45, 1.0, 0.9],
-                    f"arms = {self._arm_motion_label}  swing={self._arm_swing_scale:.1f} j/k"
+                    [0.8, 0.45, 1.0, 0.9] if self._arm_motion_mode != "off" else [0.5, 0.5, 0.5, 0.8],
+                    f"arms:{mode_hint}  {self._arm_motion_label}  swing={self._arm_swing_scale:.1f} j/k"
                     f"  reach={self._arm_reach_scale:.1f} z/x"
                     f"  spread={self._arm_spread_scale:.1f} c/v",
                     95,
