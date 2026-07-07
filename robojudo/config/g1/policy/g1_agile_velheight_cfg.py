@@ -89,7 +89,7 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     num_frozen_hand_obs: int = 24
 
     # velocity command remap (vx, vy, wz). height is a separate persistent command.
-    max_cmd: list[float] = [0.8, 0.5, 1.0]
+    max_cmd: list[float] = [0.3, 0.3, 0.6]
     commands_map: list[list[float]] = [[-1.0, 0.0, 1.0], [1.0, 0.0, -1.0], [1.0, 0.0, -1.0]]
     turn_scale_keyboard: bool = False
     turn_scale_default: float = 1.0

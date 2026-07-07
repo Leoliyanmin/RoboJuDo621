@@ -415,6 +415,7 @@ class g1_official_29dof_velheight(RlPipelineCfg):
         arm_walk_spread_amp=0.12,
         arm_spread_scale=2.2,
         arm_motion_rate_dps=260.0,
+        arm_mode_keyboard=True,
         arm_swing_keyboard=True,
         arm_spread_keyboard=True,
     )
@@ -626,6 +627,7 @@ class g1_ih_29dof_velheight_teacher(RlPipelineCfg):
         arm_wrist_swing_amp=0.12,
         arm_walk_spread_amp=0.12,
         arm_motion_rate_dps=260.0,
+        arm_mode_keyboard=True,
         arm_swing_keyboard=True,
         arm_reach_keyboard=True,
         arm_spread_keyboard=True,
