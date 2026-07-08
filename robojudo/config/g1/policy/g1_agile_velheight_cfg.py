@@ -97,6 +97,15 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     turn_scale_min: float = 0.6
     turn_scale_max: float = 1.5
 
+    # [ih] arm-obs mask (toggle key 'b'). When on, the arm joint_pos/vel obs slots are zeroed
+    # (fed the training-default arm pose) so cosmetic arm choreography (walk_elbow/box) stops
+    # perturbing the locomotion policy. The arms still MOVE physically. Verified: the ~9 cm
+    # height drop from arm motion is an OBS artifact (masking restores height), while the arm
+    # swing's turn aid is physical (survives masking). See docs/清空手臂obs.md.
+    # Off + no keyboard by default so stock checkpoints stay bit-for-bit command compatible.
+    zero_arm_obs_default: bool = False
+    zero_arm_obs_keyboard: bool = False
+
     # Optional deploy-side workaround for the weak "dead stop -> pure yaw" transition:
     # if the user presses only q/e after being idle, briefly command a tiny forward step at
     # normal height before releasing the yaw command. This mirrors the hand-tested recovery
@@ -194,3 +203,4 @@ class G1DeepSquatPINStudentPolicyCfg(G1AgileVelHeightPolicyCfg):
 
     policy_name: str = "deepsquat_pin_repro29_recurrent"
     turn_prime_enabled: bool = True
+    zero_arm_obs_keyboard: bool = True  # [ih] allow 'b' to mask arm obs at runtime

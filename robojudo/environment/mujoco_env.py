@@ -524,12 +524,16 @@ class MujocoEnv(Environment):
                          f"waist_pitch = {np.degrees(self._waist_manual_val):+.0f} deg  (, back / . fwd)", 96)
             if self._arm_motion_mode != "off" or self._arm_mode_kb:
                 mode_hint = f"  [m]={self._arm_motion_mode}" if self._arm_mode_kb else ""
+                # [ih] arm-obs mask state (policy-side, toggled by 'b'). Only shown when the
+                # policy reports it (velheight configs with zero_arm_obs_keyboard on).
+                zao = self._cmd_extras.get("zero_arm_obs")
+                obs_hint = "" if zao is None else f"  obs={'MASKED' if zao else 'real'} (b)"
                 _readout(
                     0.72,
                     [0.8, 0.45, 1.0, 0.9] if self._arm_motion_mode != "off" else [0.5, 0.5, 0.5, 0.8],
                     f"arms:{mode_hint}  {self._arm_motion_label}  swing={self._arm_swing_scale:.1f} j/k"
                     f"  reach={self._arm_reach_scale:.1f} z/x"
-                    f"  spread={self._arm_spread_scale:.1f} c/v",
+                    f"  spread={self._arm_spread_scale:.1f} c/v{obs_hint}",
                     95,
                 )
 

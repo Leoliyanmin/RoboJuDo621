@@ -39,6 +39,20 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.commands_map = self.cfg_policy.commands_map
         self.per_joint_scale = np.asarray(self.cfg_policy.action_scales, dtype=np.float32)  # (12,)
         self.num_frozen_hand_obs = int(getattr(self.cfg_policy, "num_frozen_hand_obs", DEFAULT_FROZEN_HAND_OBS))
+        # [ih] arm-obs mask: physically the arms may swing (walk_elbow/box) for a natural look,
+        # but driving them injects OUT-OF-DISTRIBUTION arm joint_pos/vel obs the policy never saw
+        # in training (arms pinned ~0). That obs perturbation makes the policy squat ~9 cm lower
+        # (cmd 0.72 -> 0.65) via the OBS channel, NOT physics (verified: zeroing arm obs restores
+        # height even with arms still swinging; the swing's TURN aid is physical and survives).
+        # See docs/清空手臂obs.md. When enabled, feed the policy training-default arm obs (0),
+        # decoupling the cosmetic arm motion from the locomotion policy. Off by default so stock
+        # checkpoints stay bit-for-bit compatible.
+        self._arm_obs_idx = [
+            i for i, n in enumerate(self.cfg_obs_dof.joint_names)
+            if ("shoulder" in n) or ("elbow" in n) or ("wrist" in n)
+        ]
+        self._zero_arm_obs_default = bool(getattr(self.cfg_policy, "zero_arm_obs_default", False))
+        self._zero_arm_obs_kb = bool(getattr(self.cfg_policy, "zero_arm_obs_keyboard", False))
         # height command state (persistent; r/f keys adjust it)
         self.height_default = float(self.cfg_policy.height_default)
         self.height_min = float(self.cfg_policy.height_min)
@@ -65,6 +79,7 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.last_action = np.zeros(self.num_actions, dtype=np.float32)  # 12, raw (pre-scale)
         self._height = self.height_default
         self._turn_scale = self.turn_scale_default
+        self._zero_arm_obs = self._zero_arm_obs_default  # [ih] toggled by 'b' (see _get_commands)
         # [ih] velocity command EMA state (cfg.cmd_smooth_alpha, 1.0 = off). Ramps the
         # key-release vx->0 snap so the move->stop transient doesn't kick the legs into a
         # latency-driven resonance (same lever as the 23dof real deploy — see 29dof部署.md).
@@ -152,6 +167,8 @@ class AgileVelHeightRecurrentPolicy(Policy):
                         self._turn_scale = min(self.turn_scale_max, self._turn_scale + self.turn_scale_step)
                     elif self.turn_scale_keyboard and event["name"] == "n":
                         self._turn_scale = max(self.turn_scale_min, self._turn_scale - self.turn_scale_step)
+                    elif self._zero_arm_obs_kb and event["name"] == "b":  # toggle arm-obs mask
+                        self._zero_arm_obs = not self._zero_arm_obs
                 # velocity: read the timeout-managed keys_pressed set (SSH-terminal safe).
                 keys_pressed = {name.lower() for name in ctrl_data[key].get("keys_pressed", [])}
                 axis_sign = [
@@ -176,12 +193,24 @@ class AgileVelHeightRecurrentPolicy(Policy):
             vel = self._cmd_smoothed.copy()
         return np.array([vel[0], vel[1], vel[2], height], dtype=np.float32)
 
+    def _mask_arm_obs(self, body_pos_rel, body_vel_rel):
+        """[ih] zero the arm joint_pos/vel obs slots when the arm-obs mask is on, so cosmetic
+        arm choreography does not perturb the locomotion policy. See docs/清空手臂obs.md."""
+        if self._zero_arm_obs and self._arm_obs_idx:
+            body_pos_rel = body_pos_rel.copy()
+            body_vel_rel = body_vel_rel.copy()
+            for i in self._arm_obs_idx:
+                body_pos_rel[i] = 0.0
+                body_vel_rel[i] = 0.0
+        return body_pos_rel, body_vel_rel
+
     def get_observation(self, env_data, ctrl_data):
         commands = self._get_commands(ctrl_data)  # (4,)
         gravity = get_gravity_orientation(env_data.base_quat)  # (3,)
         # env_data.dof_pos / dof_vel are already sliced to the 29 body joints (obs_dof order)
         body_pos_rel = (env_data.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos  # (29,)
         body_vel_rel = env_data.dof_vel * self.obs_scales.dof_vel  # (29,)
+        body_pos_rel, body_vel_rel = self._mask_arm_obs(body_pos_rel, body_vel_rel)
         hand_zeros = np.zeros(self.num_frozen_hand_obs, dtype=np.float32)
 
         obs = np.concatenate([
@@ -192,7 +221,8 @@ class AgileVelHeightRecurrentPolicy(Policy):
             body_vel_rel, hand_zeros,                    # 29 + optional frozen hand obs
             self.last_action,                            # 12
         ]).astype(np.float32)
-        return obs, {"commands": commands, "turn_scale": self._turn_scale, "turn_prime": self._turn_prime_active}
+        return obs, {"commands": commands, "turn_scale": self._turn_scale,
+                     "turn_prime": self._turn_prime_active, "zero_arm_obs": self._zero_arm_obs}
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         # Recurrent JIT: 1D obs in -> (12,) out; hidden state carried internally.
@@ -232,6 +262,7 @@ class AgileVelHeightTeacherPolicy(AgileVelHeightRecurrentPolicy):
             base_lin_vel = np.zeros(3, dtype=np.float32)
         body_pos_rel = (env_data.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos  # (29,)
         body_vel_rel = env_data.dof_vel * self.obs_scales.dof_vel  # (29,)
+        body_pos_rel, body_vel_rel = self._mask_arm_obs(body_pos_rel, body_vel_rel)
         hand_zeros = np.zeros(self.num_frozen_hand_obs, dtype=np.float32)
 
         obs = np.concatenate([
@@ -243,4 +274,5 @@ class AgileVelHeightTeacherPolicy(AgileVelHeightRecurrentPolicy):
             body_vel_rel, hand_zeros,                          # 29 + optional frozen hand obs
             self.last_action,                                  # 12
         ]).astype(np.float32)
-        return obs, {"commands": commands, "turn_scale": self._turn_scale, "turn_prime": self._turn_prime_active}
+        return obs, {"commands": commands, "turn_scale": self._turn_scale,
+                     "turn_prime": self._turn_prime_active, "zero_arm_obs": self._zero_arm_obs}
