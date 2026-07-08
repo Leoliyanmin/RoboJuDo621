@@ -117,6 +117,11 @@ class G1AgileVelHeightPolicyCfg(PolicyCfg):
     turn_prime_vx: float = 0.18
     turn_prime_yaw_scale: float = 0.0
     turn_prime_height: float = 0.72
+    # [ih] basin-break lever for the dead-stop pure-yaw stick-slip (原地拧):
+    #   "forward" = tiny forward step (lurches forward), "height" = stand taller to ~boost
+    #   height while yaw held (no forward drift), "both". See _apply_turn_prime / 清空手臂obs.md.
+    turn_prime_mode: str = "forward"
+    turn_prime_boost_height: float = 0.90
 
     # height command (target base height): r = taller, f = squat lower.
     # [ih] match the AGILE training range base_height=(0.4, DEFAULT_PELVIS_HEIGHT=0.72).
@@ -202,6 +207,10 @@ class G1DeepSquatPINStudentPolicyCfg(G1AgileVelHeightPolicyCfg):
     """PIN deep-squat deployable recurrent student (128-dim proprioceptive obs)."""
 
     policy_name: str = "deepsquat_pin_repro29_recurrent"
-    turn_prime_enabled: bool = False
+    # [ih] basin-break for dead-stop yaw (原地拧) via HEIGHT boost (stand taller while turning,
+    # no forward drift) instead of the forward-step prime. Held while pure yaw is commanded.
+    turn_prime_enabled: bool = True
+    turn_prime_mode: str = "height"
+    turn_prime_boost_height: float = 0.90
     zero_arm_obs_keyboard: bool = True  # [ih] allow 'b' to mask arm obs at runtime
     zero_arm_obs_default: bool = True   # start with arm obs masked (press 'b' to unmask)

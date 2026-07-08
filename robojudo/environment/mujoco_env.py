@@ -101,6 +101,11 @@ class MujocoEnv(Environment):
         self._arm_motion_mode = getattr(cfg_env, "arm_motion_mode", "off")
         self._arm_squat_height = float(getattr(cfg_env, "arm_squat_height", 0.52))
         self._arm_stand_height = float(getattr(cfg_env, "arm_stand_height", 0.66))
+        # [ih] lag the squat arm-pose blend behind a smoothed MEASURED pelvis height (vs the
+        # command) so box->hang completes only after the body has risen — see _apply_arm_motion.
+        self._arm_squat_use_measured = bool(getattr(cfg_env, "arm_squat_use_measured", False))
+        self._arm_squat_measured_alpha = float(getattr(cfg_env, "arm_squat_measured_alpha", 0.08))
+        self._arm_squat_h = None
         self._arm_swing_amp = float(getattr(cfg_env, "arm_swing_amp", 0.10))
         self._arm_swing_hz = float(getattr(cfg_env, "arm_swing_hz", 1.15))
         self._arm_swing_speed_ref = float(getattr(cfg_env, "arm_swing_speed_ref", 0.45))
@@ -405,10 +410,22 @@ class MujocoEnv(Environment):
         if self._cmd_readout is not None:
             vel, height_cmd = self._cmd_readout
 
+        # [ih] drive the squat box<->hang arm blend from a smoothed MEASURED pelvis height
+        # instead of the command, so the arm pose LAGS the command and completes the box->hang
+        # return only once the body has actually risen ("change state after fully up"). Avoids
+        # the fast box->hang CoM snap during a quick rise that — with the arm-obs mask blinding
+        # the policy to it — tips the robot backward. See docs/清空手臂obs.md.
+        squat_height = height_cmd
+        if self._arm_squat_use_measured and height_cmd is not None:
+            meas = float(self.data.qpos[2])
+            a = self._arm_squat_measured_alpha
+            self._arm_squat_h = meas if self._arm_squat_h is None else (1.0 - a) * self._arm_squat_h + a * meas
+            squat_height = self._arm_squat_h
+
         squat_alpha = 0.0
-        if height_cmd is not None:
+        if squat_height is not None:
             denom = max(self._arm_stand_height - self._arm_squat_height, 1e-6)
-            squat_alpha = self._smoothstep((self._arm_stand_height - height_cmd) / denom)
+            squat_alpha = self._smoothstep((self._arm_stand_height - squat_height) / denom)
 
         speed = float(np.linalg.norm(vel[:2]) + 0.25 * abs(float(vel[2])))
         speed_alpha = float(np.clip(speed / max(self._arm_swing_speed_ref, 1e-6), 0.0, 1.0))

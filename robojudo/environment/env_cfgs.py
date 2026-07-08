@@ -71,6 +71,12 @@ class MujocoEnvCfg(EnvCfg):
     arm_motion_mode: Literal["off", "walk_squat_box", "walk_elbow"] = "off"
     arm_squat_height: float = 0.52
     arm_stand_height: float = 0.66
+    # [ih] drive the squat box<->hang arm blend from a smoothed MEASURED pelvis height instead
+    # of the height command, so box->hang completes only after the body has actually risen
+    # (avoids the fast arm-CoM snap on a quick stand-up that tips the robot backward when the
+    # arm-obs mask is on). See mujoco_env._apply_arm_motion / docs/清空手臂obs.md.
+    arm_squat_use_measured: bool = False
+    arm_squat_measured_alpha: float = 0.08
     arm_swing_amp: float = 0.10
     arm_swing_hz: float = 1.15
     arm_swing_speed_ref: float = 0.45

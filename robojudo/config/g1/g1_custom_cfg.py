@@ -91,6 +91,10 @@ _DEEPSQUAT_STUDENT_ENV = {
     **_DEEPSQUAT_ENV,
     "arm_motion_mode": "walk_squat_box",
     "arm_reach_keyboard": True,  # z/x = reach forward less/more when squatting
+    # [ih] lag the box<->hang arm blend behind the MEASURED pelvis height so the box->hang
+    # return completes only after the body has actually risen — avoids the fast arm CoM snap
+    # on a quick stand-up that (with the arm-obs mask on) tips the robot backward. 清空手臂obs.md.
+    "arm_squat_use_measured": True,
 }
 
 

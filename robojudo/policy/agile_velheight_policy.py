@@ -72,6 +72,11 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.turn_prime_yaw_scale = float(getattr(self.cfg_policy, "turn_prime_yaw_scale", 0.0))
         turn_prime_height = float(getattr(self.cfg_policy, "turn_prime_height", self.height_default))
         self.turn_prime_height = min(self.height_max, max(self.height_min, turn_prime_height))
+        # [ih] basin-break lever: "forward" (step), "height" (stand taller, no drift), or "both".
+        self.turn_prime_mode = str(getattr(self.cfg_policy, "turn_prime_mode", "forward"))
+        turn_prime_boost = float(getattr(self.cfg_policy, "turn_prime_boost_height", 0.90))
+        # not clamped to height_max — standing above the r/f cap is the whole point of the boost.
+        self.turn_prime_boost_height = min(1.0, max(self.height_min, turn_prime_boost))
         self.reset()
 
     def reset(self):
@@ -96,12 +101,16 @@ class AgileVelHeightRecurrentPolicy(Policy):
         self.timestep += 1
 
     def _apply_turn_prime(self, vel: np.ndarray, height: float) -> tuple[np.ndarray, float]:
-        """Prime dead-stop pure-yaw turns with a tiny forward step.
-
-        This is intentionally outside the learned policy: the exported obs/action ABI is
-        unchanged. It only reshapes user commands for the weak transition reproduced in
-        MuJoCo and on the operator side: stable idle/crouch -> q/e -> feet stay planted.
-        """
+        """Break the dead-stop pure-yaw "planted crouch" basin (feet stick, torso twists =
+        stick-slip 原地拧). Two levers, selected by turn_prime_mode:
+          - "forward": inject a tiny forward step for turn_prime_duration on the idle->yaw edge
+            (robot takes a step -> escapes the basin). Cost: lurches forward a little.
+          - "height": raise the height command to turn_prime_boost_height (~0.9) for as long as
+            pure yaw is held (robot stands taller -> leaves the planted-crouch basin -> turns).
+            Cost: stands up while turning, returns to the set height on release. No forward drift.
+          - "both": apply both.
+        Intentionally outside the learned policy: the exported obs/action ABI is unchanged, this
+        only reshapes user commands. See docs/清空手臂obs.md (basin discussion)."""
         self._turn_prime_active = False
         if not self.turn_prime_enabled:
             return vel, height
@@ -122,21 +131,30 @@ class AgileVelHeightRecurrentPolicy(Policy):
                 self._idle_cmd_steps = 0
             return vel, height
 
-        if self._turn_prime_steps_left <= 0 and self._idle_cmd_steps >= self.turn_prime_idle_steps:
+        do_forward = self.turn_prime_mode in ("forward", "both")
+        do_height = self.turn_prime_mode in ("height", "both")
+
+        # height lever: boost the height command for the whole pure-yaw command (no forward drift)
+        if do_height:
+            height = max(float(height), self.turn_prime_boost_height)
+            self._turn_prime_active = True
+
+        # forward lever: transient forward step engaged on the idle -> pure-yaw edge
+        if do_forward and self._turn_prime_steps_left <= 0 and self._idle_cmd_steps >= self.turn_prime_idle_steps:
             self._turn_prime_steps_left = self.turn_prime_steps
-
         self._idle_cmd_steps = 0
-        height = max(float(height), self.turn_prime_height)
-        if self._turn_prime_steps_left <= 0:
-            return vel, height
+        if do_forward:
+            height = max(float(height), self.turn_prime_height)
+            if self._turn_prime_steps_left > 0:
+                primed_vel = vel.copy()
+                primed_vel[0] = self.turn_prime_vx
+                primed_vel[1] = 0.0
+                primed_vel[2] = vel[2] * self.turn_prime_yaw_scale
+                self._turn_prime_steps_left -= 1
+                self._turn_prime_active = True
+                return primed_vel, height
 
-        primed_vel = vel.copy()
-        primed_vel[0] = self.turn_prime_vx
-        primed_vel[1] = 0.0
-        primed_vel[2] = vel[2] * self.turn_prime_yaw_scale
-        self._turn_prime_steps_left -= 1
-        self._turn_prime_active = True
-        return primed_vel, height
+        return vel, height
 
     def _get_commands(self, ctrl_data) -> np.ndarray:
         """Return [vx, vy, wz, height]. vx/vy/wz from held velocity keys / joystick axes;

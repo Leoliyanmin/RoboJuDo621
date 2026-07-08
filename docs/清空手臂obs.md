@@ -48,11 +48,22 @@ obs 里 `joint_pos_rel` / `joint_vel_rel` 包含 **29 个身体关节，含 14 �
   - 已在 `G1DeepSquatPINStudentPolicyCfg` 打开 keyboard（`zero_arm_obs_keyboard=True`）。
 - 默认全 off：不改 config 的 stock checkpoint 保持 obs bit-for-bit 兼容。
 
+## 副作用与修复：上升时后倒（CoM）
+
+mask 是"高度 vs CoM 一致性"的**本质权衡**：mask 骗策略"手臂在训练默认位（质量偏前）"，策略据此往后压平衡；实际 walk_elbow/box 手臂在别处 → 净 CoM 偏后。稳态影响小（每档前倾少 ~2°、不摔），但有一个会摔的瞬态：
+
+**walk_squat_box 下蹲(→box reach 前伸) 再快速上升(→hang 回摆)时**，手臂从 box 快速回 hang 是一次大 CoM 突变；mask on 让策略**看不见这个突变、补不了** → 上升段后仰。实测（squat 0.72→0.20→rise，mask on）：上升段最小 pitch rise=0.010 时 **−7.8°**（mask off 仅 −4.4°），升得慢（0.004）则不后仰。
+
+**修复（默认已开）**：让下蹲手臂 blend（`squat_alpha`）跟随**平滑后的实测 pelvis 高度**而非高度命令 → 命令一升、身体没起来时手臂**滞后留在 box**，等身体真升上去才回 hang（"完全升上去再变状态"），box→hang 突变消失。实测修复后上升段最小 pitch **−7.8° → +0.4°**。
+- cfg：`arm_squat_use_measured: bool`（默认 False；`g1_ih_29dof_deepsquat_pin` 已开 True）、`arm_squat_measured_alpha: float = 0.08`（实测高度平滑系数，越小越滞后）。
+- 备选（未实现）：条件 mask（仅站立高档 mask、下蹲/上升解 mask 让策略看得见手臂平衡）；或减小手臂物理垂/伸幅度、降 `arm_motion_rate_dps`。
+
 ## 实现位置
 
 - `robojudo/policy/agile_velheight_policy.py`：`_arm_obs_idx`（14 个肩/肘/腕）、`_zero_arm_obs` 状态、`b` 键切换（`_get_commands`）、`_mask_arm_obs()`（两个 `get_observation` 都调用）、extras 上报 `zero_arm_obs`。
 - `robojudo/config/g1/policy/g1_agile_velheight_cfg.py`：两个 cfg 字段 + student 开 keyboard。
-- `robojudo/environment/mujoco_env.py`：`arms:` 行末显示 mask 状态（读 `_cmd_extras["zero_arm_obs"]`）。
+- `robojudo/environment/mujoco_env.py`：`arms:` 行末显示 mask 状态（读 `_cmd_extras["zero_arm_obs"]`）；`_apply_arm_motion` 的 `arm_squat_use_measured` 实测高度跟随（修上升后倒）。
+- `robojudo/environment/env_cfgs.py` + `config/g1/g1_custom_cfg.py`：`arm_squat_use_measured/alpha` 字段 + student env 开 True。
 
 ## 复现工具
 
