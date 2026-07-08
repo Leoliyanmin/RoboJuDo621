@@ -202,5 +202,6 @@ class G1DeepSquatPINStudentPolicyCfg(G1AgileVelHeightPolicyCfg):
     """PIN deep-squat deployable recurrent student (128-dim proprioceptive obs)."""
 
     policy_name: str = "deepsquat_pin_repro29_recurrent"
-    turn_prime_enabled: bool = True
+    turn_prime_enabled: bool = False
     zero_arm_obs_keyboard: bool = True  # [ih] allow 'b' to mask arm obs at runtime
+    zero_arm_obs_default: bool = True   # start with arm obs masked (press 'b' to unmask)

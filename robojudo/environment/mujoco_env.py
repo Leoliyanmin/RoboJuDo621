@@ -490,7 +490,7 @@ class MujocoEnv(Environment):
                     type=mujoco.mjtGeom.mjGEOM_SPHERE,
                     size=[0.03, 0.03, 0.03],
                     rgba=color,
-                    label=text,
+                    label=text[:99],
                     id=mid,
                 )
 
