@@ -77,6 +77,8 @@ class MujocoEnvCfg(EnvCfg):
     # arm-obs mask is on). See mujoco_env._apply_arm_motion / docs/清空手臂obs.md.
     arm_squat_use_measured: bool = False
     arm_squat_measured_alpha: float = 0.08
+    arm_squat_hold_s: float = 0.0
+    arm_squat_return_rate_dps: float = 0.0
     arm_swing_amp: float = 0.10
     arm_swing_hz: float = 1.15
     arm_swing_speed_ref: float = 0.45
